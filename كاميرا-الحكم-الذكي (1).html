@@ -1,0 +1,2237 @@
+<!DOCTYPE html>
+<html><head><base href="https://881115342-atari-embeds.googleusercontent.com/embeds/928209f300890cc864ba5f6dbbfbf517/inner-frame-minified.html?jsh=m%3B%2F_%2Fscs%2Fabc-static%2F_%2Fjs%2Fk%3Dgapi.lb.ar.72AGBDZhTXc.O%2Fd%3D1%2Frs%3DAHpOoo-QDds4cTph4aXi5Lh_Q_KyuP2iMA%2Fm%3D__features__" target="_blank">
+      <script>
+        (function() {
+          if (window.__atariInitRender) {
+            window.__atariInitRender(false);
+            return;
+          }
+          var isLiquid = false;
+          var guardsInstalled = false;
+          var LOCAL_DOWNLOAD_URL_RE = /^(?:blob|data):/i;
+          var PROTOCOL_RELATIVE_RE = /^[\/\\]{2}/;
+          var FORBIDDEN_TAG_RE = /^(?:iframe|frame|object|embed)$/i;
+          var XLINK_NS = 'http://www.w3.org/1999/xlink';
+          var origPreventDefault = Event.prototype.preventDefault;
+          var origStopPropagation = Event.prototype.stopPropagation;
+          var origStopImmediatePropagation =
+              Event.prototype.stopImmediatePropagation;
+          var origAddEventListener = EventTarget.prototype.addEventListener;
+          var origRemoveEventListener =
+              EventTarget.prototype.removeEventListener;
+          var origWindowStop = window.stop ? window.stop.bind(window) : null;
+          var origElementRemove = Element.prototype.remove;
+          var origGetAttribute = Element.prototype.getAttribute;
+          var origGetAttributeNS = Element.prototype.getAttributeNS;
+          var origHasAttribute = Element.prototype.hasAttribute;
+          var origHasAttributeNS = Element.prototype.hasAttributeNS;
+          var origSetAttribute = Element.prototype.setAttribute;
+          var origSetAttributeNS = Element.prototype.setAttributeNS;
+          var origSetAttributeNode = Element.prototype.setAttributeNode;
+          var origSetAttributeNodeNS = Element.prototype.setAttributeNodeNS;
+          var origRemoveAttribute = Element.prototype.removeAttribute;
+          var origRemoveAttributeNS = Element.prototype.removeAttributeNS;
+          var origComposedPath = Event.prototype.composedPath;
+          var origCreateElement = Document.prototype.createElement;
+          var origCreateElementNS = Document.prototype.createElementNS;
+          var validatingEvents =
+              typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+          var activeDeferredListeners = null;
+          var inProgrammaticClick = 0;
+
+          function isLinkElement(el) {
+            var tag = el && el.tagName && el.tagName.toLowerCase();
+            return tag === 'a' || tag === 'area';
+          }
+
+          function hasLinkHref(link) {
+            return origHasAttribute.call(link, 'href') ||
+                origHasAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          // Returns the href of an HTML or SVG link, which may only have the
+          // legacy xlink:href attribute.
+          function getLinkHref(link) {
+            return origGetAttribute.call(link, 'href') ||
+                origGetAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          function removeLinkHref(link) {
+            origRemoveAttribute.call(link, 'href');
+            origRemoveAttributeNS.call(link, XLINK_NS, 'href');
+          }
+
+          // Returns whether the link downloads a file that the app created,
+          // which doesn't send data to other sites.
+          function isLocalDownloadLink(link, href) {
+            return origHasAttribute.call(link, 'download') &&
+                LOCAL_DOWNLOAD_URL_RE.test(href);
+          }
+
+          function isRefreshValue(val) {
+            return String(val || '').trim().toLowerCase() === 'refresh';
+          }
+
+          function purgeMetaRefresh(root) {
+            if (!root || !root.querySelectorAll) return;
+            var metas = root.querySelectorAll('meta[http-equiv]');
+            for (var i = 0; i < metas.length; i++) {
+              if (isRefreshValue(
+                  origGetAttribute.call(metas[i], 'http-equiv'))) {
+                origElementRemove.call(metas[i]);
+              }
+            }
+            var frames = root.querySelectorAll('iframe, frame, object, embed');
+            for (var j = 0; j < frames.length; j++) {
+              origElementRemove.call(frames[j]);
+            }
+          }
+
+          function getParentOrHost(node) {
+            if (!node) return null;
+            if (node.parentElement) return node.parentElement;
+            var parent = node.parentNode;
+            return parent && parent.host ? parent.host : null;
+          }
+
+          function findLinkFromNode(startNode, requireHref) {
+            var el = startNode;
+            while (el && el !== document) {
+              if (isLinkElement(el) && (!requireHref || hasLinkHref(el))) {
+                return el;
+              }
+              el = getParentOrHost(el);
+            }
+            return null;
+          }
+
+          function findLinkFromEvent(e) {
+            if (origComposedPath) {
+              try {
+                var path = origComposedPath.call(e);
+                for (var i = 0; i < path.length; i++) {
+                  var node = path[i];
+                  if (isLinkElement(node) && hasLinkHref(node)) {
+                    return node;
+                  }
+                }
+              } catch (err) {}
+            }
+            return findLinkFromNode(e.target, true);
+          }
+
+          // Keeps the app from opening popups, navigating its frame, and
+          // adding meta refresh tags. document.open() keeps the window, its
+          // prototypes, and the document, so these are installed once per
+          // frame rather than on every render.
+          function installNavigationGuards() {
+            try {
+              Object.defineProperty(window, 'open', {
+                value: function() {
+                  return null;
+                },
+                writable: false,
+                configurable: false
+              });
+            } catch (err) {
+              window.open = function() {
+                return null;
+              };
+            }
+            if (window.navigation && window.navigation.addEventListener) {
+              origAddEventListener.call(
+                  window.navigation, 'navigate', function(e) {
+                    if (!e.cancelable || e.destination.sameDocument) return;
+                    if (e.downloadRequest !== null &&
+                        LOCAL_DOWNLOAD_URL_RE.test(e.destination.url)) {
+                      return;
+                    }
+                    origPreventDefault.call(e);
+                  }, true);
+            }
+            var iframeWinDesc = typeof HTMLIFrameElement !== 'undefined' &&
+                Object.getOwnPropertyDescriptor(
+                    HTMLIFrameElement.prototype, 'contentWindow');
+            if (iframeWinDesc && iframeWinDesc.get) {
+              Object.defineProperty(
+                  HTMLIFrameElement.prototype, 'contentWindow', {
+                    get: function() {
+                      return null;
+                    },
+                    configurable: false,
+                    enumerable: true
+                  });
+            }
+            var iframeDocDesc = typeof HTMLIFrameElement !== 'undefined' &&
+                Object.getOwnPropertyDescriptor(
+                    HTMLIFrameElement.prototype, 'contentDocument');
+            if (iframeDocDesc && iframeDocDesc.get) {
+              Object.defineProperty(
+                  HTMLIFrameElement.prototype, 'contentDocument', {
+                    get: function() {
+                      return null;
+                    },
+                    configurable: false,
+                    enumerable: true
+                  });
+            }
+            Document.prototype.createElement = function(tagName, options) {
+              if (FORBIDDEN_TAG_RE.test(String(tagName || ''))) {
+                return origCreateElement.call(this, 'div', options);
+              }
+              return origCreateElement.apply(this, arguments);
+            };
+            if (origCreateElementNS) {
+              Document.prototype.createElementNS = function(ns, qName, opts) {
+                var local = String(qName || '').split(':').pop();
+                if (FORBIDDEN_TAG_RE.test(local)) {
+                  return origCreateElement.call(this, 'div');
+                }
+                return origCreateElementNS.apply(this, arguments);
+              };
+            }
+            var origClick = HTMLElement.prototype.click;
+            HTMLElement.prototype.click = function() {
+              var link = findLinkFromNode(this, true);
+              if (link) {
+                var clickHref = (getLinkHref(link) || '').trim();
+                if (!clickHref.startsWith('#') &&
+                    !isLocalDownloadLink(link, clickHref)) {
+                  return;
+                }
+              }
+              inProgrammaticClick++;
+              try {
+                return origClick.apply(this, arguments);
+              } finally {
+                inProgrammaticClick--;
+              }
+            };
+            function isMetaRefreshAttr(el, name, value) {
+              return el && el.tagName &&
+                  el.tagName.toLowerCase() === 'meta' &&
+                  String(name || '').trim().toLowerCase() === 'http-equiv' &&
+                  isRefreshValue(value);
+            }
+            function validateIfActiveLink(el) {
+              if (!activeDeferredListeners || !isLinkElement(el) ||
+                  !hasLinkHref(el)) {
+                return;
+              }
+              var curHref = (getLinkHref(el) || '').trim();
+              if (!curHref.startsWith('#')) {
+                handleLiquidExternalLink(
+                    activeDeferredListeners.event, el, curHref,
+                    activeDeferredListeners.programmatic);
+              }
+            }
+            Element.prototype.setAttribute = function(name, value) {
+              if (isMetaRefreshAttr(this, name, value)) {
+                origElementRemove.call(this);
+                return;
+              }
+              var res = origSetAttribute.apply(this, arguments);
+              if (String(name || '').toLowerCase() === 'href') {
+                validateIfActiveLink(this);
+              }
+              return res;
+            };
+            if (origSetAttributeNS) {
+              Element.prototype.setAttributeNS = function(ns, name, value) {
+                var local = String(name || '');
+                if (local.includes(':')) local = local.split(':').pop();
+                if (isMetaRefreshAttr(this, local, value)) {
+                  origElementRemove.call(this);
+                  return;
+                }
+                var res = origSetAttributeNS.apply(this, arguments);
+                if (local.toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            if (origSetAttributeNode) {
+              Element.prototype.setAttributeNode = function(attr) {
+                if (attr && isMetaRefreshAttr(this, attr.name, attr.value)) {
+                  origElementRemove.call(this);
+                  return null;
+                }
+                var res = origSetAttributeNode.apply(this, arguments);
+                if (attr && String(attr.name || '').toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            if (origSetAttributeNodeNS) {
+              Element.prototype.setAttributeNodeNS = function(attr) {
+                var name = attr && (attr.localName || attr.name);
+                if (attr && isMetaRefreshAttr(this, name, attr.value)) {
+                  origElementRemove.call(this);
+                  return null;
+                }
+                var res = origSetAttributeNodeNS.apply(this, arguments);
+                if (String(name || '').toLowerCase() === 'href') {
+                  validateIfActiveLink(this);
+                }
+                return res;
+              };
+            }
+            function wrapHrefSetter(ctor) {
+              if (!ctor || !ctor.prototype) return;
+              var hrefDesc = Object.getOwnPropertyDescriptor(
+                  ctor.prototype, 'href');
+              if (hrefDesc && hrefDesc.set) {
+                Object.defineProperty(ctor.prototype, 'href', {
+                  get: hrefDesc.get,
+                  set: function(value) {
+                    hrefDesc.set.call(this, value);
+                    validateIfActiveLink(this);
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            }
+            if (typeof HTMLAnchorElement !== 'undefined') {
+              wrapHrefSetter(HTMLAnchorElement);
+            }
+            if (typeof HTMLAreaElement !== 'undefined') {
+              wrapHrefSetter(HTMLAreaElement);
+            }
+            if (typeof HTMLMetaElement !== 'undefined') {
+              var desc = Object.getOwnPropertyDescriptor(
+                  HTMLMetaElement.prototype, 'httpEquiv');
+              if (desc && desc.set) {
+                Object.defineProperty(HTMLMetaElement.prototype, 'httpEquiv', {
+                  get: desc.get,
+                  set: function(value) {
+                    if (isRefreshValue(value)) {
+                      origElementRemove.call(this);
+                      return;
+                    }
+                    desc.set.call(this, value);
+                  },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            }
+            Event.prototype.stopPropagation = function() {
+              if (validatingEvents && validatingEvents.has(this)) {
+                return;
+              }
+              return origStopPropagation.apply(this, arguments);
+            };
+            Event.prototype.stopImmediatePropagation = function() {
+              if (validatingEvents && validatingEvents.has(this)) {
+                return;
+              }
+              return origStopImmediatePropagation.apply(this, arguments);
+            };
+            var cancelBubbleDesc = Object.getOwnPropertyDescriptor(
+                Event.prototype, 'cancelBubble');
+            if (cancelBubbleDesc && cancelBubbleDesc.set) {
+              Object.defineProperty(Event.prototype, 'cancelBubble', {
+                get: cancelBubbleDesc.get,
+                set: function(val) {
+                  if (val && validatingEvents && validatingEvents.has(this)) {
+                    return;
+                  }
+                  cancelBubbleDesc.set.call(this, val);
+                },
+                configurable: true,
+                enumerable: true
+              });
+            }
+            function wrapAddEventListener(origFn) {
+              return function(type, listener, options) {
+                var res = origFn.apply(this, arguments);
+                if (activeDeferredListeners &&
+                    type === activeDeferredListeners.type) {
+                  origRemoveEventListener.call(
+                      window, activeDeferredListeners.type,
+                      activeDeferredListeners.fn, false);
+                  origAddEventListener.call(
+                      window, activeDeferredListeners.type,
+                      activeDeferredListeners.fn, false);
+                }
+                return res;
+              };
+            }
+            var origWinAdd = window.addEventListener || origAddEventListener;
+            EventTarget.prototype.addEventListener =
+                wrapAddEventListener(origAddEventListener);
+            if (typeof Window !== 'undefined' && Window.prototype) {
+              try {
+                Window.prototype.addEventListener =
+                    wrapAddEventListener(origWinAdd);
+              } catch (err) {}
+            }
+            try {
+              window.addEventListener = wrapAddEventListener(origWinAdd);
+            } catch (err) {}
+            function observeMutations(target) {
+              if (!target || typeof MutationObserver === 'undefined') return;
+              new MutationObserver(function(mutations) {
+                if (activeDeferredListeners) {
+                  for (var i = 0; i < mutations.length; i++) {
+                    var m = mutations[i];
+                    if (m.type === 'attributes' &&
+                        isLinkElement(m.target) &&
+                        hasLinkHref(m.target)) {
+                      var mHref = (getLinkHref(m.target) || '').trim();
+                      if (!mHref.startsWith('#')) {
+                        handleLiquidExternalLink(
+                            activeDeferredListeners.event, m.target, mHref,
+                            activeDeferredListeners.programmatic);
+                      }
+                    }
+                  }
+                }
+                purgeMetaRefresh(target);
+              }).observe(target, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['http-equiv', 'href']
+              });
+            }
+            observeMutations(document);
+            if (Element.prototype.attachShadow) {
+              var origAttachShadow = Element.prototype.attachShadow;
+              Element.prototype.attachShadow = function() {
+                var sr = origAttachShadow.apply(this, arguments);
+                observeMutations(sr);
+                return sr;
+              };
+            }
+          }
+
+          // Returns the URL of an absolute or protocol-relative href, or null.
+          function parseAbsoluteUrl(href) {
+            var candidate =
+                PROTOCOL_RELATIVE_RE.test(href) ? 'https:' + href : href;
+            try {
+              return new URL(candidate);
+            } catch (err) {
+              return null;
+            }
+          }
+
+          // Opens the link in a new tab through the Google redirector, which
+          // warns users before they leave for another site.
+          function routeThroughRedirector(link, url) {
+            var redirectUrl = url.href;
+            if (url.origin !== 'https://www.google.com' ||
+                url.pathname !== '/url' ||
+                !url.searchParams.has('q')) {
+              redirectUrl = 'https://www.google.com/url?q=' +
+                  encodeURIComponent(url.href);
+            }
+            origSetAttribute.call(link, 'href', redirectUrl);
+            origRemoveAttributeNS.call(link, XLINK_NS, 'href');
+            origSetAttribute.call(link, 'target', '_blank');
+            origSetAttribute.call(link, 'rel', 'noopener noreferrer');
+          }
+
+          // Lets Liquid App links open web pages only through the redirector,
+          // and blocks links with other protocols, such as javascript:.
+          // Context menu events rewrite or remove the link attribute so that
+          // "Open link in new tab" also goes through the redirector or is
+          // disabled.
+          function handleLiquidExternalLink(e, link, href, programmatic) {
+            if (isLocalDownloadLink(link, href)) return;
+            if (programmatic || inProgrammaticClick > 0) {
+              removeLinkHref(link);
+              origPreventDefault.call(e);
+              origStopPropagation.call(e);
+              return;
+            }
+            var url = parseAbsoluteUrl(href);
+            var protocol = url ? url.protocol : '';
+            if (protocol === 'http:' || protocol === 'https:') {
+              routeThroughRedirector(link, url);
+            } else if (protocol !== 'mailto:' && protocol !== 'tel:') {
+              if (e.type === 'contextmenu') {
+                removeLinkHref(link);
+              } else {
+                origPreventDefault.call(e);
+                origStopPropagation.call(e);
+              }
+            }
+          }
+
+          function validateLiquidLinkAfterBubble(e, anchor, programmatic) {
+            if (validatingEvents) {
+              validatingEvents.add(e);
+            }
+            var state = {
+              type: e.type,
+              fn: onBubble,
+              event: e,
+              programmatic: programmatic
+            };
+            activeDeferredListeners = state;
+            function checkTarget(ev) {
+              var targetLink = anchor || findLinkFromEvent(ev);
+              if (!targetLink || !hasLinkHref(targetLink)) return;
+              var latestHref = (getLinkHref(targetLink) || '').trim();
+              if (!latestHref.startsWith('#')) {
+                handleLiquidExternalLink(
+                    ev, targetLink, latestHref, programmatic);
+              }
+            }
+            Promise.resolve().then(function() {
+              checkTarget(e);
+              if (activeDeferredListeners === state) {
+                activeDeferredListeners = null;
+              }
+            });
+            function onBubble(ev) {
+              origRemoveEventListener.call(window, ev.type, onBubble, false);
+              checkTarget(ev);
+            }
+            origAddEventListener.call(window, e.type, onBubble, false);
+          }
+
+          function handleLinkClick(e) {
+            var programmatic = inProgrammaticClick > 0;
+            // Find the nearest ancestor link (handles nested icons, spans,
+            // svgs, and shadow DOM).
+            var anchor = findLinkFromEvent(e);
+            if (!anchor) {
+              if (isLiquid) {
+                validateLiquidLinkAfterBubble(e, null, programmatic);
+              }
+              return;
+            }
+
+            if (isLiquid) {
+              validateLiquidLinkAfterBubble(e, anchor, programmatic);
+            }
+            var href = (getLinkHref(anchor) || '').trim();
+            if (!href.startsWith('#')) {
+              if (isLiquid) {
+                handleLiquidExternalLink(e, anchor, href, programmatic);
+              }
+              return;
+            }
+            if (e.type === 'contextmenu') return;
+
+            // Prevent default <base target="_blank"> navigation to a new blank tab.
+            origPreventDefault.call(e);
+            if (!isLiquid) {
+              origStopPropagation.call(e);
+            }
+
+            // Handle empty anchor or top anchor.
+            if (href === '#' || href === '#top') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              return;
+            }
+
+            // Resolve target element by id, falling back to legacy name attribute.
+            var targetId = href.slice(1);
+            try {
+              targetId = decodeURIComponent(targetId);
+            } catch (err) {}
+
+            var targetEl = document.getElementById(targetId);
+            if (!targetEl) {
+              try {
+                var escaped = window.CSS && CSS.escape ? CSS.escape(targetId) : targetId.replace(/["\\]/g, '\\$&');
+                targetEl = document.querySelector('[name="' + escaped + '"]');
+              } catch (err) {}
+            }
+
+            // Smoothly scroll to the target within the embed and update URL hash history.
+            if (targetEl) {
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              if (window.history && window.history.pushState) {
+                window.history.pushState(null, '', href);
+              }
+            }
+          }
+
+          function initRender(nextIsLiquid) {
+            isLiquid = isLiquid || !!nextIsLiquid;
+            if (isLiquid) {
+              if (!guardsInstalled) {
+                guardsInstalled = true;
+                installNavigationGuards();
+              } else {
+                try {
+                  window.addEventListener =
+                      EventTarget.prototype.addEventListener;
+                } catch (err) {}
+              }
+              // document.open() removes the window's listeners, so this is
+              // added on every render.
+              origAddEventListener.call(window, 'beforeunload', function(e) {
+                origPreventDefault.call(e);
+                if (origWindowStop) {
+                  origWindowStop();
+                }
+              }, true);
+              purgeMetaRefresh(document);
+            }
+            // Listen during capturing phase to preempt <base target="_blank">.
+            origAddEventListener.call(
+                document, 'click', handleLinkClick, true);
+            if (isLiquid) {
+              origAddEventListener.call(
+                  document, 'auxclick', handleLinkClick, true);
+              origAddEventListener.call(
+                  document, 'contextmenu', handleLinkClick, true);
+            }
+          }
+
+          try {
+            Object.defineProperty(window, '__atariInitRender', {
+              value: initRender,
+              writable: false,
+              configurable: false
+            });
+          } catch (err) {
+            window.__atariInitRender = initRender;
+          }
+          initRender(false);
+        })();
+      </script>
+    <!-- ... existing code ... -->
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#090d16">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="حكم الفار الذكي">
+  <link id="pwaManifestLink" rel="manifest" href="blob:null/cd36eda3-97ca-4ccf-8058-63c647eaa0f6">
+  <link id="appleTouchIconLink" rel="apple-touch-icon" href="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20512%20512%22%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Cdefs%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3ClinearGradient%20id%3D%22bg%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23090d16%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%230f172a%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3C%2Fdefs%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Crect%20width%3D%22512%22%20height%3D%22512%22%20rx%3D%22112%22%20fill%3D%22url(%23bg)%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Crect%20x%3D%2228%22%20y%3D%2228%22%20width%3D%22456%22%20height%3D%22456%22%20rx%3D%2292%22%20fill%3D%22none%22%20stroke%3D%22%2300e676%22%20stroke-width%3D%2214%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Ccircle%20cx%3D%22256%22%20cy%3D%22215%22%20r%3D%2278%22%20fill%3D%22%2300e676%22%20fill-opacity%3D%220.18%22%20stroke%3D%22%2300e676%22%20stroke-width%3D%2212%22%2F%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Ctext%20x%3D%22256%22%20y%3D%22236%22%20text-anchor%3D%22middle%22%20fill%3D%22%23ffffff%22%20font-family%3D%22Arial%2C%20sans-serif%22%20font-weight%3D%22900%22%20font-size%3D%2268%22%3EVAR%3C%2Ftext%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%20%20%3Ctext%20x%3D%22256%22%20y%3D%22375%22%20text-anchor%3D%22middle%22%20fill%3D%22%2300e676%22%20font-family%3D%22Arial%2C%20sans-serif%22%20font-weight%3D%22900%22%20font-size%3D%2244%22%3EOFFLINE%3C%2Ftext%3E%0A%20%20%20%20%20%20%20%20%20%20%20%20%3C%2Fsvg%3E">
+  <title>كاميرا الحكم الذكي الفوري (Instant AI Camera VAR Referee)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&amp;family=Inter:wght@400;600;700;800&amp;display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Cairo', 'Inter', 'sans-serif'],
+            mono: ['Inter', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #090d16;
+      color: #f8fafc;
+      font-family: 'Cairo', 'Inter', sans-serif;
+    }
+    @keyframes radarPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.35); opacity: 0.45; }
+    }
+    @keyframes eventPop {
+      0% { opacity: 0; transform: scale(0.84) translateY(14px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes edgeFlash {
+      0% { opacity: 0; }
+      30% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    .animate-radar { animation: radarPulse 1.3s infinite ease-in-out; }
+    .animate-event-pop { animation: eventPop 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    .animate-edge-flash { animation: edgeFlash 1.4s ease-out forwards; }
+    .hud-pitch-grid {
+      background-image:
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 64px 64px;
+    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+<style>*, ::before, ::after{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */*,::after,::before{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}::after,::before{--tw-content:''}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;font-family:Cairo, Inter, sans-serif;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:Inter, monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0;padding:0}legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.fixed{position:fixed}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0px}.inset-x-10{left:2.5rem;right:2.5rem}.inset-x-2{left:0.5rem;right:0.5rem}.inset-y-0{top:0px;bottom:0px}.inset-y-16{top:4rem;bottom:4rem}.bottom-2{bottom:0.5rem}.bottom-2\.5{bottom:0.625rem}.left-1\/2{left:50%}.left-2\.5{left:0.625rem}.right-2\.5{right:0.625rem}.top-1\/2{top:50%}.top-2{top:0.5rem}.top-2\.5{top:0.625rem}.z-0{z-index:0}.z-10{z-index:10}.z-20{z-index:20}.z-30{z-index:30}.z-40{z-index:40}.z-50{z-index:50}.order-2{order:2}.order-3{order:3}.mx-auto{margin-left:auto;margin-right:auto}.inline-block{display:inline-block}.flex{display:flex}.grid{display:grid}.hidden{display:none}.h-16{height:4rem}.h-2\.5{height:0.625rem}.h-20{height:5rem}.h-24{height:6rem}.h-5{height:1.25rem}.h-6{height:1.5rem}.h-7{height:1.75rem}.h-8{height:2rem}.h-\[68\%\]{height:68%}.h-full{height:100%}.h-screen{height:100vh}.max-h-\[82vh\]{max-height:82vh}.min-h-\[150px\]{min-height:150px}.w-16{width:4rem}.w-2\.5{width:0.625rem}.w-24{width:6rem}.w-4{width:1rem}.w-5{width:1.25rem}.w-6{width:1.5rem}.w-7{width:1.75rem}.w-8{width:2rem}.w-full{width:100%}.w-px{width:1px}.w-screen{width:100vw}.max-w-5xl{max-width:64rem}.max-w-lg{max-width:32rem}.max-w-md{max-width:28rem}.flex-1{flex:1 1 0%}.shrink-0{flex-shrink:0}.-translate-x-1\/2{--tw-translate-x:-50%;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.-translate-y-1\/2{--tw-translate-y:-50%;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}.grid-cols-5{grid-template-columns:repeat(5, minmax(0, 1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-start{align-items:flex-start}.items-end{align-items:flex-end}.items-center{align-items:center}.justify-start{justify-content:flex-start}.justify-end{justify-content:flex-end}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.gap-1{gap:0.25rem}.gap-1\.5{gap:0.375rem}.gap-2{gap:0.5rem}.gap-2\.5{gap:0.625rem}.gap-3{gap:0.75rem}.gap-3\.5{gap:0.875rem}.space-y-1\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.375rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.375rem * var(--tw-space-y-reverse))}.space-y-2 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.5rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.5rem * var(--tw-space-y-reverse))}.space-y-2\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.625rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.625rem * var(--tw-space-y-reverse))}.space-y-4 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem * var(--tw-space-y-reverse))}.self-center{align-self:center}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.overflow-y-auto{overflow-y:auto}.rounded-2xl{border-radius:1rem}.rounded-3xl{border-radius:1.5rem}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:0.5rem}.rounded-xl{border-radius:0.75rem}.rounded-l-md{border-top-left-radius:0.375rem;border-bottom-left-radius:0.375rem}.rounded-r-md{border-top-right-radius:0.375rem;border-bottom-right-radius:0.375rem}.rounded-t-3xl{border-top-left-radius:1.5rem;border-top-right-radius:1.5rem}.rounded-bl-lg{border-bottom-left-radius:0.5rem}.rounded-br-lg{border-bottom-right-radius:0.5rem}.rounded-tl-lg{border-top-left-radius:0.5rem}.rounded-tr-lg{border-top-right-radius:0.5rem}.border{border-width:1px}.border-2{border-width:2px}.border-\[8px\]{border-width:8px}.border-b{border-bottom-width:1px}.border-b-2{border-bottom-width:2px}.border-l-0{border-left-width:0px}.border-l-2{border-left-width:2px}.border-r-0{border-right-width:0px}.border-r-2{border-right-width:2px}.border-t{border-top-width:1px}.border-t-2{border-top-width:2px}.border-\[\#00e676\]{--tw-border-opacity:1;border-color:rgb(0 230 118 / var(--tw-border-opacity, 1))}.border-\[\#00e676\]\/15{border-color:rgb(0 230 118 / 0.15)}.border-\[\#00e676\]\/40{border-color:rgb(0 230 118 / 0.4)}.border-\[\#00e676\]\/50{border-color:rgb(0 230 118 / 0.5)}.border-\[\#00e676\]\/70{border-color:rgb(0 230 118 / 0.7)}.border-\[\#2979ff\]{--tw-border-opacity:1;border-color:rgb(41 121 255 / var(--tw-border-opacity, 1))}.border-\[\#2979ff\]\/40{border-color:rgb(41 121 255 / 0.4)}.border-\[\#2979ff\]\/50{border-color:rgb(41 121 255 / 0.5)}.border-\[\#ff3b30\]{--tw-border-opacity:1;border-color:rgb(255 59 48 / var(--tw-border-opacity, 1))}.border-\[\#ff3b30\]\/50{border-color:rgb(255 59 48 / 0.5)}.border-emerald-400\/50{border-color:rgb(52 211 153 / 0.5)}.border-emerald-500\/40{border-color:rgb(16 185 129 / 0.4)}.border-rose-500\/35{border-color:rgb(244 63 94 / 0.35)}.border-rose-500\/40{border-color:rgb(244 63 94 / 0.4)}.border-sky-400\/30{border-color:rgb(56 189 248 / 0.3)}.border-white\/10{border-color:rgb(255 255 255 / 0.1)}.border-white\/15{border-color:rgb(255 255 255 / 0.15)}.bg-\[\#00e676\]{--tw-bg-opacity:1;background-color:rgb(0 230 118 / var(--tw-bg-opacity, 1))}.bg-\[\#00e676\]\/15{background-color:rgb(0 230 118 / 0.15)}.bg-\[\#00e676\]\/20{background-color:rgb(0 230 118 / 0.2)}.bg-\[\#090d16\]{--tw-bg-opacity:1;background-color:rgb(9 13 22 / var(--tw-bg-opacity, 1))}.bg-\[\#090d16\]\/80{background-color:rgb(9 13 22 / 0.8)}.bg-\[\#090d16\]\/85{background-color:rgb(9 13 22 / 0.85)}.bg-\[\#090d16\]\/95{background-color:rgb(9 13 22 / 0.95)}.bg-\[\#2979ff\]{--tw-bg-opacity:1;background-color:rgb(41 121 255 / var(--tw-bg-opacity, 1))}.bg-\[\#2979ff\]\/20{background-color:rgb(41 121 255 / 0.2)}.bg-\[\#2979ff\]\/25{background-color:rgb(41 121 255 / 0.25)}.bg-\[\#ff3b30\]{--tw-bg-opacity:1;background-color:rgb(255 59 48 / var(--tw-bg-opacity, 1))}.bg-\[\#ff3b30\]\/20{background-color:rgb(255 59 48 / 0.2)}.bg-amber-500\/20{background-color:rgb(245 158 11 / 0.2)}.bg-amber-600{--tw-bg-opacity:1;background-color:rgb(217 119 6 / var(--tw-bg-opacity, 1))}.bg-black\/65{background-color:rgb(0 0 0 / 0.65)}.bg-black\/75{background-color:rgb(0 0 0 / 0.75)}.bg-black\/80{background-color:rgb(0 0 0 / 0.8)}.bg-emerald-500\/15{background-color:rgb(16 185 129 / 0.15)}.bg-emerald-500\/20{background-color:rgb(16 185 129 / 0.2)}.bg-emerald-600{--tw-bg-opacity:1;background-color:rgb(5 150 105 / var(--tw-bg-opacity, 1))}.bg-indigo-600{--tw-bg-opacity:1;background-color:rgb(79 70 229 / var(--tw-bg-opacity, 1))}.bg-rose-500\/15{background-color:rgb(244 63 94 / 0.15)}.bg-rose-950\/40{background-color:rgb(76 5 25 / 0.4)}.bg-sky-500\/15{background-color:rgb(14 165 233 / 0.15)}.bg-slate-800{--tw-bg-opacity:1;background-color:rgb(30 41 59 / var(--tw-bg-opacity, 1))}.bg-slate-900{--tw-bg-opacity:1;background-color:rgb(15 23 42 / var(--tw-bg-opacity, 1))}.bg-slate-900\/95{background-color:rgb(15 23 42 / 0.95)}.bg-slate-950{--tw-bg-opacity:1;background-color:rgb(2 6 23 / var(--tw-bg-opacity, 1))}.bg-white\/10{background-color:rgb(255 255 255 / 0.1)}.bg-white\/15{background-color:rgb(255 255 255 / 0.15)}.bg-white\/5{background-color:rgb(255 255 255 / 0.05)}.bg-gradient-to-br{background-image:linear-gradient(to bottom right, var(--tw-gradient-stops))}.bg-gradient-to-r{background-image:linear-gradient(to right, var(--tw-gradient-stops))}.from-\[\#00e676\]{--tw-gradient-from:#00e676 var(--tw-gradient-from-position);--tw-gradient-to:rgb(0 230 118 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from), var(--tw-gradient-to)}.from-\[\#00e676\]\/25{--tw-gradient-from:rgb(0 230 118 / 0.25) var(--tw-gradient-from-position);--tw-gradient-to:rgb(0 230 118 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from), var(--tw-gradient-to)}.via-emerald-500\/15{--tw-gradient-to:rgb(16 185 129 / 0)  var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from), rgb(16 185 129 / 0.15) var(--tw-gradient-via-position), var(--tw-gradient-to)}.to-\[\#2979ff\]\/25{--tw-gradient-to:rgb(41 121 255 / 0.25) var(--tw-gradient-to-position)}.to-emerald-400{--tw-gradient-to:#34d399 var(--tw-gradient-to-position)}.object-cover{object-fit:cover}.p-0{padding:0px}.p-2{padding:0.5rem}.p-3{padding:0.75rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.p-6{padding:1.5rem}.px-1{padding-left:0.25rem;padding-right:0.25rem}.px-2{padding-left:0.5rem;padding-right:0.5rem}.px-2\.5{padding-left:0.625rem;padding-right:0.625rem}.px-3{padding-left:0.75rem;padding-right:0.75rem}.px-4{padding-left:1rem;padding-right:1rem}.px-6{padding-left:1.5rem;padding-right:1.5rem}.py-0\.5{padding-top:0.125rem;padding-bottom:0.125rem}.py-1{padding-top:0.25rem;padding-bottom:0.25rem}.py-1\.5{padding-top:0.375rem;padding-bottom:0.375rem}.py-2{padding-top:0.5rem;padding-bottom:0.5rem}.py-2\.5{padding-top:0.625rem;padding-bottom:0.625rem}.py-3{padding-top:0.75rem;padding-bottom:0.75rem}.py-3\.5{padding-top:0.875rem;padding-bottom:0.875rem}.py-5{padding-top:1.25rem;padding-bottom:1.25rem}.py-8{padding-top:2rem;padding-bottom:2rem}.pb-3{padding-bottom:0.75rem}.pr-0\.5{padding-right:0.125rem}.pt-1{padding-top:0.25rem}.pt-1\.5{padding-top:0.375rem}.pt-2{padding-top:0.5rem}.text-center{text-align:center}.font-mono{font-family:Inter, monospace}.text-2xl{font-size:1.5rem;line-height:2rem}.text-3xl{font-size:1.875rem;line-height:2.25rem}.text-4xl{font-size:2.25rem;line-height:2.5rem}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.text-base{font-size:1rem;line-height:1.5rem}.text-sm{font-size:0.875rem;line-height:1.25rem}.text-xs{font-size:0.75rem;line-height:1rem}.font-black{font-weight:900}.font-bold{font-weight:700}.font-extrabold{font-weight:800}.leading-relaxed{line-height:1.625}.leading-tight{line-height:1.25}.text-\[\#00e676\]{--tw-text-opacity:1;color:rgb(0 230 118 / var(--tw-text-opacity, 1))}.text-amber-200{--tw-text-opacity:1;color:rgb(253 230 138 / var(--tw-text-opacity, 1))}.text-amber-300{--tw-text-opacity:1;color:rgb(252 211 77 / var(--tw-text-opacity, 1))}.text-blue-100{--tw-text-opacity:1;color:rgb(219 234 254 / var(--tw-text-opacity, 1))}.text-blue-200{--tw-text-opacity:1;color:rgb(191 219 254 / var(--tw-text-opacity, 1))}.text-blue-300{--tw-text-opacity:1;color:rgb(147 197 253 / var(--tw-text-opacity, 1))}.text-blue-400{--tw-text-opacity:1;color:rgb(96 165 250 / var(--tw-text-opacity, 1))}.text-emerald-200{--tw-text-opacity:1;color:rgb(167 243 208 / var(--tw-text-opacity, 1))}.text-emerald-300{--tw-text-opacity:1;color:rgb(110 231 183 / var(--tw-text-opacity, 1))}.text-indigo-300{--tw-text-opacity:1;color:rgb(165 180 252 / var(--tw-text-opacity, 1))}.text-rose-100{--tw-text-opacity:1;color:rgb(255 228 230 / var(--tw-text-opacity, 1))}.text-rose-200{--tw-text-opacity:1;color:rgb(254 205 211 / var(--tw-text-opacity, 1))}.text-rose-300{--tw-text-opacity:1;color:rgb(253 164 175 / var(--tw-text-opacity, 1))}.text-rose-400{--tw-text-opacity:1;color:rgb(251 113 133 / var(--tw-text-opacity, 1))}.text-sky-200{--tw-text-opacity:1;color:rgb(186 230 253 / var(--tw-text-opacity, 1))}.text-sky-300{--tw-text-opacity:1;color:rgb(125 211 252 / var(--tw-text-opacity, 1))}.text-slate-200{--tw-text-opacity:1;color:rgb(226 232 240 / var(--tw-text-opacity, 1))}.text-slate-300{--tw-text-opacity:1;color:rgb(203 213 225 / var(--tw-text-opacity, 1))}.text-slate-400{--tw-text-opacity:1;color:rgb(148 163 184 / var(--tw-text-opacity, 1))}.text-slate-500{--tw-text-opacity:1;color:rgb(100 116 139 / var(--tw-text-opacity, 1))}.text-slate-950{--tw-text-opacity:1;color:rgb(2 6 23 / var(--tw-text-opacity, 1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255 / var(--tw-text-opacity, 1))}.opacity-45{opacity:0.45}.shadow{--tw-shadow:0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 1px 3px 0 var(--tw-shadow-color), 0 1px 2px -1px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-2xl{--tw-shadow:0 25px 50px -12px rgb(0 0 0 / 0.25);--tw-shadow-colored:0 25px 50px -12px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-\[0_20px_70px_rgba\(0\2c 0\2c 0\2c 0\.9\)\]{--tw-shadow:0 20px 70px rgba(0,0,0,0.9);--tw-shadow-colored:0 20px 70px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-\[inset_0_0_80px_rgba\(0\2c 230\2c 118\2c 0\.75\)\]{--tw-shadow:inset 0 0 80px rgba(0,230,118,0.75);--tw-shadow-colored:inset 0 0 80px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-lg{--tw-shadow:0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-md{--tw-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 4px 6px -1px var(--tw-shadow-color), 0 2px 4px -2px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-xl{--tw-shadow:0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 20px 25px -5px var(--tw-shadow-color), 0 8px 10px -6px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-blue-500\/25{--tw-shadow-color:rgb(59 130 246 / 0.25);--tw-shadow:var(--tw-shadow-colored)}.shadow-emerald-500\/25{--tw-shadow-color:rgb(16 185 129 / 0.25);--tw-shadow:var(--tw-shadow-colored)}.backdrop-blur-md{--tw-backdrop-blur:blur(12px);-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.backdrop-blur-sm{--tw-backdrop-blur:blur(4px);-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.backdrop-blur-xl{--tw-backdrop-blur:blur(24px);-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.transition{transition-property:color, background-color, border-color, fill, stroke, opacity, box-shadow, transform, filter, -webkit-text-decoration-color, -webkit-backdrop-filter;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, -webkit-text-decoration-color, -webkit-backdrop-filter;transition-timing-function:cubic-bezier(0.4, 0, 0.2, 1);transition-duration:150ms}.hover\:bg-\[\#2979ff\]\/30:hover{background-color:rgb(41 121 255 / 0.3)}.hover\:bg-\[\#2979ff\]\/35:hover{background-color:rgb(41 121 255 / 0.35)}.hover\:bg-\[\#2979ff\]\/40:hover{background-color:rgb(41 121 255 / 0.4)}.hover\:bg-amber-500:hover{--tw-bg-opacity:1;background-color:rgb(245 158 11 / var(--tw-bg-opacity, 1))}.hover\:bg-blue-500:hover{--tw-bg-opacity:1;background-color:rgb(59 130 246 / var(--tw-bg-opacity, 1))}.hover\:bg-emerald-500:hover{--tw-bg-opacity:1;background-color:rgb(16 185 129 / var(--tw-bg-opacity, 1))}.hover\:bg-emerald-500\/25:hover{background-color:rgb(16 185 129 / 0.25)}.hover\:bg-emerald-500\/30:hover{background-color:rgb(16 185 129 / 0.3)}.hover\:bg-emerald-500\/35:hover{background-color:rgb(16 185 129 / 0.35)}.hover\:bg-indigo-500:hover{--tw-bg-opacity:1;background-color:rgb(99 102 241 / var(--tw-bg-opacity, 1))}.hover\:bg-rose-500:hover{--tw-bg-opacity:1;background-color:rgb(244 63 94 / var(--tw-bg-opacity, 1))}.hover\:bg-rose-500\/25:hover{background-color:rgb(244 63 94 / 0.25)}.hover\:bg-slate-700:hover{--tw-bg-opacity:1;background-color:rgb(51 65 85 / var(--tw-bg-opacity, 1))}.hover\:bg-white\/10:hover{background-color:rgb(255 255 255 / 0.1)}.hover\:bg-white\/15:hover{background-color:rgb(255 255 255 / 0.15)}.hover\:bg-white\/20:hover{background-color:rgb(255 255 255 / 0.2)}.hover\:bg-white\/25:hover{background-color:rgb(255 255 255 / 0.25)}.hover\:brightness-110:hover{--tw-brightness:brightness(1.1);filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.active\:scale-90:active{--tw-scale-x:.9;--tw-scale-y:.9;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.active\:scale-95:active{--tw-scale-x:.95;--tw-scale-y:.95;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}@media (min-width: 640px){.sm\:inset-x-4{left:1rem;right:1rem}.sm\:inset-x-5{left:1.25rem;right:1.25rem}.sm\:bottom-3\.5{bottom:0.875rem}.sm\:top-3{top:0.75rem}.sm\:order-2{order:2}.sm\:order-3{order:3}.sm\:block{display:block}.sm\:inline{display:inline}.sm\:h-20{height:5rem}.sm\:w-20{width:5rem}.sm\:w-auto{width:auto}.sm\:max-w-xl{max-width:36rem}.sm\:flex-row{flex-direction:row}.sm\:items-center{align-items:center}.sm\:justify-center{justify-content:center}.sm\:gap-3{gap:0.75rem}.sm\:rounded-3xl{border-radius:1.5rem}.sm\:border-t-0{border-top-width:0px}.sm\:p-4{padding:1rem}.sm\:p-5{padding:1.25rem}.sm\:p-6{padding:1.5rem}.sm\:p-7{padding:1.75rem}.sm\:px-3\.5{padding-left:0.875rem;padding-right:0.875rem}.sm\:px-8{padding-left:2rem;padding-right:2rem}.sm\:py-2{padding-top:0.5rem;padding-bottom:0.5rem}.sm\:py-7{padding-top:1.75rem;padding-bottom:1.75rem}.sm\:pt-0{padding-top:0px}.sm\:text-3xl{font-size:1.875rem;line-height:2.25rem}.sm\:text-4xl{font-size:2.25rem;line-height:2.5rem}.sm\:text-6xl{font-size:3.75rem;line-height:1}.sm\:text-\[11px\]{font-size:11px}.sm\:text-base{font-size:1rem;line-height:1.5rem}.sm\:text-lg{font-size:1.125rem;line-height:1.75rem}.sm\:text-sm{font-size:0.875rem;line-height:1.25rem}.sm\:text-xl{font-size:1.25rem;line-height:1.75rem}.sm\:text-xs{font-size:0.75rem;line-height:1rem}}@media (min-width: 768px){.md\:inline-flex{display:inline-flex}}</style><style>*, ::before, ::after{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */*,::after,::before{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}::after,::before{--tw-content:''}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;font-family:Cairo, Inter, sans-serif;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:Inter, monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0;padding:0}legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.pointer-events-none{pointer-events:none}.pointer-events-auto{pointer-events:auto}.fixed{position:fixed}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0px}.inset-x-10{left:2.5rem;right:2.5rem}.inset-x-2{left:0.5rem;right:0.5rem}.inset-y-0{top:0px;bottom:0px}.inset-y-16{top:4rem;bottom:4rem}.bottom-2{bottom:0.5rem}.bottom-2\.5{bottom:0.625rem}.left-1\/2{left:50%}.left-2\.5{left:0.625rem}.right-2\.5{right:0.625rem}.top-1\/2{top:50%}.top-2{top:0.5rem}.top-2\.5{top:0.625rem}.z-0{z-index:0}.z-10{z-index:10}.z-20{z-index:20}.z-30{z-index:30}.z-40{z-index:40}.z-50{z-index:50}.order-2{order:2}.order-3{order:3}.mx-auto{margin-left:auto;margin-right:auto}.mt-0\.5{margin-top:0.125rem}.mt-1{margin-top:0.25rem}.inline-block{display:inline-block}.flex{display:flex}.grid{display:grid}.hidden{display:none}.h-16{height:4rem}.h-2\.5{height:0.625rem}.h-20{height:5rem}.h-24{height:6rem}.h-5{height:1.25rem}.h-6{height:1.5rem}.h-7{height:1.75rem}.h-8{height:2rem}.h-\[68\%\]{height:68%}.h-full{height:100%}.h-screen{height:100vh}.max-h-\[82vh\]{max-height:82vh}.min-h-\[150px\]{min-height:150px}.w-16{width:4rem}.w-2\.5{width:0.625rem}.w-24{width:6rem}.w-4{width:1rem}.w-5{width:1.25rem}.w-6{width:1.5rem}.w-7{width:1.75rem}.w-8{width:2rem}.w-full{width:100%}.w-px{width:1px}.w-screen{width:100vw}.max-w-5xl{max-width:64rem}.max-w-lg{max-width:32rem}.max-w-md{max-width:28rem}.flex-1{flex:1 1 0%}.shrink-0{flex-shrink:0}.-translate-x-1\/2{--tw-translate-x:-50%;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.-translate-y-1\/2{--tw-translate-y:-50%;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.grid-cols-2{grid-template-columns:repeat(2, minmax(0, 1fr))}.grid-cols-5{grid-template-columns:repeat(5, minmax(0, 1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-start{align-items:flex-start}.items-end{align-items:flex-end}.items-center{align-items:center}.justify-start{justify-content:flex-start}.justify-end{justify-content:flex-end}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.justify-around{justify-content:space-around}.gap-1{gap:0.25rem}.gap-1\.5{gap:0.375rem}.gap-2{gap:0.5rem}.gap-2\.5{gap:0.625rem}.gap-3{gap:0.75rem}.gap-3\.5{gap:0.875rem}.space-y-1\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.375rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.375rem * var(--tw-space-y-reverse))}.space-y-2 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.5rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.5rem * var(--tw-space-y-reverse))}.space-y-2\.5 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(0.625rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(0.625rem * var(--tw-space-y-reverse))}.space-y-4 > :not([hidden]) ~ :not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem * calc(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem * var(--tw-space-y-reverse))}.self-center{align-self:center}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.overflow-y-auto{overflow-y:auto}.rounded-2xl{border-radius:1rem}.rounded-3xl{border-radius:1.5rem}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:0.5rem}.rounded-xl{border-radius:0.75rem}.rounded-l-md{border-top-left-radius:0.375rem;border-bottom-left-radius:0.375rem}.rounded-r-md{border-top-right-radius:0.375rem;border-bottom-right-radius:0.375rem}.rounded-t-3xl{border-top-left-radius:1.5rem;border-top-right-radius:1.5rem}.rounded-bl-lg{border-bottom-left-radius:0.5rem}.rounded-br-lg{border-bottom-right-radius:0.5rem}.rounded-tl-lg{border-top-left-radius:0.5rem}.rounded-tr-lg{border-top-right-radius:0.5rem}.border{border-width:1px}.border-2{border-width:2px}.border-\[8px\]{border-width:8px}.border-b{border-bottom-width:1px}.border-b-2{border-bottom-width:2px}.border-l-0{border-left-width:0px}.border-l-2{border-left-width:2px}.border-r-0{border-right-width:0px}.border-r-2{border-right-width:2px}.border-t{border-top-width:1px}.border-t-2{border-top-width:2px}.border-\[\#00e676\]{--tw-border-opacity:1;border-color:rgb(0 230 118 / var(--tw-border-opacity, 1))}.border-\[\#00e676\]\/15{border-color:rgb(0 230 118 / 0.15)}.border-\[\#00e676\]\/40{border-color:rgb(0 230 118 / 0.4)}.border-\[\#00e676\]\/50{border-color:rgb(0 230 118 / 0.5)}.border-\[\#00e676\]\/70{border-color:rgb(0 230 118 / 0.7)}.border-\[\#2979ff\]{--tw-border-opacity:1;border-color:rgb(41 121 255 / var(--tw-border-opacity, 1))}.border-\[\#2979ff\]\/40{border-color:rgb(41 121 255 / 0.4)}.border-\[\#2979ff\]\/50{border-color:rgb(41 121 255 / 0.5)}.border-\[\#ff3b30\]{--tw-border-opacity:1;border-color:rgb(255 59 48 / var(--tw-border-opacity, 1))}.border-\[\#ff3b30\]\/50{border-color:rgb(255 59 48 / 0.5)}.border-emerald-400\/50{border-color:rgb(52 211 153 / 0.5)}.border-emerald-500\/40{border-color:rgb(16 185 129 / 0.4)}.border-rose-500\/35{border-color:rgb(244 63 94 / 0.35)}.border-rose-500\/40{border-color:rgb(244 63 94 / 0.4)}.border-sky-400\/30{border-color:rgb(56 189 248 / 0.3)}.border-white\/10{border-color:rgb(255 255 255 / 0.1)}.border-white\/15{border-color:rgb(255 255 255 / 0.15)}.border-indigo-400{--tw-border-opacity:1;border-color:rgb(129 140 248 / var(--tw-border-opacity, 1))}.border-indigo-500{--tw-border-opacity:1;border-color:rgb(99 102 241 / var(--tw-border-opacity, 1))}.border-white\/20{border-color:rgb(255 255 255 / 0.2)}.border-amber-400{--tw-border-opacity:1;border-color:rgb(251 191 36 / var(--tw-border-opacity, 1))}.border-amber-500{--tw-border-opacity:1;border-color:rgb(245 158 11 / var(--tw-border-opacity, 1))}.bg-\[\#00e676\]{--tw-bg-opacity:1;background-color:rgb(0 230 118 / var(--tw-bg-opacity, 1))}.bg-\[\#00e676\]\/15{background-color:rgb(0 230 118 / 0.15)}.bg-\[\#00e676\]\/20{background-color:rgb(0 230 118 / 0.2)}.bg-\[\#090d16\]{--tw-bg-opacity:1;background-color:rgb(9 13 22 / var(--tw-bg-opacity, 1))}.bg-\[\#090d16\]\/80{background-color:rgb(9 13 22 / 0.8)}.bg-\[\#090d16\]\/85{background-color:rgb(9 13 22 / 0.85)}.bg-\[\#090d16\]\/95{background-color:rgb(9 13 22 / 0.95)}.bg-\[\#2979ff\]{--tw-bg-opacity:1;background-color:rgb(41 121 255 / var(--tw-bg-opacity, 1))}.bg-\[\#2979ff\]\/20{background-color:rgb(41 121 255 / 0.2)}.bg-\[\#2979ff\]\/25{background-color:rgb(41 121 255 / 0.25)}.bg-\[\#ff3b30\]{--tw-bg-opacity:1;background-color:rgb(255 59 48 / var(--tw-bg-opacity, 1))}.bg-\[\#ff3b30\]\/20{background-color:rgb(255 59 48 / 0.2)}.bg-amber-500\/20{background-color:rgb(245 158 11 / 0.2)}.bg-amber-600{--tw-bg-opacity:1;background-color:rgb(217 119 6 / var(--tw-bg-opacity, 1))}.bg-black\/65{background-color:rgb(0 0 0 / 0.65)}.bg-black\/75{background-color:rgb(0 0 0 / 0.75)}.bg-black\/80{background-color:rgb(0 0 0 / 0.8)}.bg-emerald-500\/15{background-color:rgb(16 185 129 / 0.15)}.bg-emerald-500\/20{background-color:rgb(16 185 129 / 0.2)}.bg-emerald-600{--tw-bg-opacity:1;background-color:rgb(5 150 105 / var(--tw-bg-opacity, 1))}.bg-indigo-600{--tw-bg-opacity:1;background-color:rgb(79 70 229 / var(--tw-bg-opacity, 1))}.bg-rose-500\/15{background-color:rgb(244 63 94 / 0.15)}.bg-rose-950\/40{background-color:rgb(76 5 25 / 0.4)}.bg-sky-500\/15{background-color:rgb(14 165 233 / 0.15)}.bg-slate-800{--tw-bg-opacity:1;background-color:rgb(30 41 59 / var(--tw-bg-opacity, 1))}.bg-slate-900{--tw-bg-opacity:1;background-color:rgb(15 23 42 / var(--tw-bg-opacity, 1))}.bg-slate-900\/95{background-color:rgb(15 23 42 / 0.95)}.bg-slate-950{--tw-bg-opacity:1;background-color:rgb(2 6 23 / var(--tw-bg-opacity, 1))}.bg-white\/10{background-color:rgb(255 255 255 / 0.1)}.bg-white\/15{background-color:rgb(255 255 255 / 0.15)}.bg-white\/5{background-color:rgb(255 255 255 / 0.05)}.bg-gradient-to-br{background-image:linear-gradient(to bottom right, var(--tw-gradient-stops))}.bg-gradient-to-r{background-image:linear-gradient(to right, var(--tw-gradient-stops))}.from-\[\#00e676\]{--tw-gradient-from:#00e676 var(--tw-gradient-from-position);--tw-gradient-to:rgb(0 230 118 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from), var(--tw-gradient-to)}.from-\[\#00e676\]\/25{--tw-gradient-from:rgb(0 230 118 / 0.25) var(--tw-gradient-from-position);--tw-gradient-to:rgb(0 230 118 / 0) var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from), var(--tw-gradient-to)}.via-emerald-500\/15{--tw-gradient-to:rgb(16 185 129 / 0)  var(--tw-gradient-to-position);--tw-gradient-stops:var(--tw-gradient-from), rgb(16 185 129 / 0.15) var(--tw-gradient-via-position), var(--tw-gradient-to)}.to-\[\#2979ff\]\/25{--tw-gradient-to:rgb(41 121 255 / 0.25) var(--tw-gradient-to-position)}.to-emerald-400{--tw-gradient-to:#34d399 var(--tw-gradient-to-position)}.object-cover{object-fit:cover}.p-0{padding:0px}.p-2{padding:0.5rem}.p-3{padding:0.75rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.p-6{padding:1.5rem}.px-1{padding-left:0.25rem;padding-right:0.25rem}.px-2{padding-left:0.5rem;padding-right:0.5rem}.px-2\.5{padding-left:0.625rem;padding-right:0.625rem}.px-3{padding-left:0.75rem;padding-right:0.75rem}.px-4{padding-left:1rem;padding-right:1rem}.px-6{padding-left:1.5rem;padding-right:1.5rem}.py-0\.5{padding-top:0.125rem;padding-bottom:0.125rem}.py-1{padding-top:0.25rem;padding-bottom:0.25rem}.py-1\.5{padding-top:0.375rem;padding-bottom:0.375rem}.py-2{padding-top:0.5rem;padding-bottom:0.5rem}.py-2\.5{padding-top:0.625rem;padding-bottom:0.625rem}.py-3{padding-top:0.75rem;padding-bottom:0.75rem}.py-3\.5{padding-top:0.875rem;padding-bottom:0.875rem}.py-5{padding-top:1.25rem;padding-bottom:1.25rem}.py-8{padding-top:2rem;padding-bottom:2rem}.pb-3{padding-bottom:0.75rem}.pr-0\.5{padding-right:0.125rem}.pt-1{padding-top:0.25rem}.pt-1\.5{padding-top:0.375rem}.pt-2{padding-top:0.5rem}.text-center{text-align:center}.font-mono{font-family:Inter, monospace}.text-2xl{font-size:1.5rem;line-height:2rem}.text-3xl{font-size:1.875rem;line-height:2.25rem}.text-4xl{font-size:2.25rem;line-height:2.5rem}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.text-base{font-size:1rem;line-height:1.5rem}.text-sm{font-size:0.875rem;line-height:1.25rem}.text-xs{font-size:0.75rem;line-height:1rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.font-black{font-weight:900}.font-bold{font-weight:700}.font-extrabold{font-weight:800}.leading-relaxed{line-height:1.625}.leading-tight{line-height:1.25}.text-\[\#00e676\]{--tw-text-opacity:1;color:rgb(0 230 118 / var(--tw-text-opacity, 1))}.text-amber-200{--tw-text-opacity:1;color:rgb(253 230 138 / var(--tw-text-opacity, 1))}.text-amber-300{--tw-text-opacity:1;color:rgb(252 211 77 / var(--tw-text-opacity, 1))}.text-blue-100{--tw-text-opacity:1;color:rgb(219 234 254 / var(--tw-text-opacity, 1))}.text-blue-200{--tw-text-opacity:1;color:rgb(191 219 254 / var(--tw-text-opacity, 1))}.text-blue-300{--tw-text-opacity:1;color:rgb(147 197 253 / var(--tw-text-opacity, 1))}.text-blue-400{--tw-text-opacity:1;color:rgb(96 165 250 / var(--tw-text-opacity, 1))}.text-emerald-200{--tw-text-opacity:1;color:rgb(167 243 208 / var(--tw-text-opacity, 1))}.text-emerald-300{--tw-text-opacity:1;color:rgb(110 231 183 / var(--tw-text-opacity, 1))}.text-indigo-300{--tw-text-opacity:1;color:rgb(165 180 252 / var(--tw-text-opacity, 1))}.text-rose-100{--tw-text-opacity:1;color:rgb(255 228 230 / var(--tw-text-opacity, 1))}.text-rose-200{--tw-text-opacity:1;color:rgb(254 205 211 / var(--tw-text-opacity, 1))}.text-rose-300{--tw-text-opacity:1;color:rgb(253 164 175 / var(--tw-text-opacity, 1))}.text-rose-400{--tw-text-opacity:1;color:rgb(251 113 133 / var(--tw-text-opacity, 1))}.text-sky-200{--tw-text-opacity:1;color:rgb(186 230 253 / var(--tw-text-opacity, 1))}.text-sky-300{--tw-text-opacity:1;color:rgb(125 211 252 / var(--tw-text-opacity, 1))}.text-slate-200{--tw-text-opacity:1;color:rgb(226 232 240 / var(--tw-text-opacity, 1))}.text-slate-300{--tw-text-opacity:1;color:rgb(203 213 225 / var(--tw-text-opacity, 1))}.text-slate-400{--tw-text-opacity:1;color:rgb(148 163 184 / var(--tw-text-opacity, 1))}.text-slate-500{--tw-text-opacity:1;color:rgb(100 116 139 / var(--tw-text-opacity, 1))}.text-slate-950{--tw-text-opacity:1;color:rgb(2 6 23 / var(--tw-text-opacity, 1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255 / var(--tw-text-opacity, 1))}.text-emerald-400{--tw-text-opacity:1;color:rgb(52 211 153 / var(--tw-text-opacity, 1))}.opacity-45{opacity:0.45}.shadow{--tw-shadow:0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 1px 3px 0 var(--tw-shadow-color), 0 1px 2px -1px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-2xl{--tw-shadow:0 25px 50px -12px rgb(0 0 0 / 0.25);--tw-shadow-colored:0 25px 50px -12px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-\[0_20px_70px_rgba\(0\2c 0\2c 0\2c 0\.9\)\]{--tw-shadow:0 20px 70px rgba(0,0,0,0.9);--tw-shadow-colored:0 20px 70px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-\[inset_0_0_80px_rgba\(0\2c 230\2c 118\2c 0\.75\)\]{--tw-shadow:inset 0 0 80px rgba(0,230,118,0.75);--tw-shadow-colored:inset 0 0 80px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-lg{--tw-shadow:0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-md{--tw-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 4px 6px -1px var(--tw-shadow-color), 0 2px 4px -2px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-xl{--tw-shadow:0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);--tw-shadow-colored:0 20px 25px -5px var(--tw-shadow-color), 0 8px 10px -6px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-\[inset_0_0_85px_rgba\(99\2c 102\2c 241\2c 0\.8\)\]{--tw-shadow:inset 0 0 85px rgba(99,102,241,0.8);--tw-shadow-colored:inset 0 0 85px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-\[inset_0_0_85px_rgba\(245\2c 158\2c 11\2c 0\.8\)\]{--tw-shadow:inset 0 0 85px rgba(245,158,11,0.8);--tw-shadow-colored:inset 0 0 85px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)}.shadow-blue-500\/25{--tw-shadow-color:rgb(59 130 246 / 0.25);--tw-shadow:var(--tw-shadow-colored)}.shadow-emerald-500\/25{--tw-shadow-color:rgb(16 185 129 / 0.25);--tw-shadow:var(--tw-shadow-colored)}.backdrop-blur-md{--tw-backdrop-blur:blur(12px);-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.backdrop-blur-sm{--tw-backdrop-blur:blur(4px);-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.backdrop-blur-xl{--tw-backdrop-blur:blur(24px);-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.transition{transition-property:color, background-color, border-color, fill, stroke, opacity, box-shadow, transform, filter, -webkit-text-decoration-color, -webkit-backdrop-filter;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;transition-property:color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, -webkit-text-decoration-color, -webkit-backdrop-filter;transition-timing-function:cubic-bezier(0.4, 0, 0.2, 1);transition-duration:150ms}.hover\:bg-\[\#2979ff\]\/30:hover{background-color:rgb(41 121 255 / 0.3)}.hover\:bg-\[\#2979ff\]\/35:hover{background-color:rgb(41 121 255 / 0.35)}.hover\:bg-\[\#2979ff\]\/40:hover{background-color:rgb(41 121 255 / 0.4)}.hover\:bg-amber-500:hover{--tw-bg-opacity:1;background-color:rgb(245 158 11 / var(--tw-bg-opacity, 1))}.hover\:bg-blue-500:hover{--tw-bg-opacity:1;background-color:rgb(59 130 246 / var(--tw-bg-opacity, 1))}.hover\:bg-emerald-500:hover{--tw-bg-opacity:1;background-color:rgb(16 185 129 / var(--tw-bg-opacity, 1))}.hover\:bg-emerald-500\/25:hover{background-color:rgb(16 185 129 / 0.25)}.hover\:bg-emerald-500\/30:hover{background-color:rgb(16 185 129 / 0.3)}.hover\:bg-emerald-500\/35:hover{background-color:rgb(16 185 129 / 0.35)}.hover\:bg-indigo-500:hover{--tw-bg-opacity:1;background-color:rgb(99 102 241 / var(--tw-bg-opacity, 1))}.hover\:bg-rose-500:hover{--tw-bg-opacity:1;background-color:rgb(244 63 94 / var(--tw-bg-opacity, 1))}.hover\:bg-rose-500\/25:hover{background-color:rgb(244 63 94 / 0.25)}.hover\:bg-slate-700:hover{--tw-bg-opacity:1;background-color:rgb(51 65 85 / var(--tw-bg-opacity, 1))}.hover\:bg-white\/10:hover{background-color:rgb(255 255 255 / 0.1)}.hover\:bg-white\/15:hover{background-color:rgb(255 255 255 / 0.15)}.hover\:bg-white\/20:hover{background-color:rgb(255 255 255 / 0.2)}.hover\:bg-white\/25:hover{background-color:rgb(255 255 255 / 0.25)}.hover\:brightness-110:hover{--tw-brightness:brightness(1.1);filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.active\:scale-90:active{--tw-scale-x:.9;--tw-scale-y:.9;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.active\:scale-95:active{--tw-scale-x:.95;--tw-scale-y:.95;transform:translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}@media (min-width: 640px){.sm\:inset-x-4{left:1rem;right:1rem}.sm\:inset-x-5{left:1.25rem;right:1.25rem}.sm\:bottom-3\.5{bottom:0.875rem}.sm\:top-3{top:0.75rem}.sm\:order-2{order:2}.sm\:order-3{order:3}.sm\:block{display:block}.sm\:inline{display:inline}.sm\:h-20{height:5rem}.sm\:w-20{width:5rem}.sm\:w-auto{width:auto}.sm\:max-w-xl{max-width:36rem}.sm\:flex-row{flex-direction:row}.sm\:items-center{align-items:center}.sm\:justify-center{justify-content:center}.sm\:gap-3{gap:0.75rem}.sm\:rounded-3xl{border-radius:1.5rem}.sm\:border-t-0{border-top-width:0px}.sm\:p-4{padding:1rem}.sm\:p-5{padding:1.25rem}.sm\:p-6{padding:1.5rem}.sm\:p-7{padding:1.75rem}.sm\:px-3\.5{padding-left:0.875rem;padding-right:0.875rem}.sm\:px-8{padding-left:2rem;padding-right:2rem}.sm\:py-2{padding-top:0.5rem;padding-bottom:0.5rem}.sm\:py-7{padding-top:1.75rem;padding-bottom:1.75rem}.sm\:pt-0{padding-top:0px}.sm\:text-3xl{font-size:1.875rem;line-height:2.25rem}.sm\:text-4xl{font-size:2.25rem;line-height:2.5rem}.sm\:text-6xl{font-size:3.75rem;line-height:1}.sm\:text-\[11px\]{font-size:11px}.sm\:text-base{font-size:1rem;line-height:1.5rem}.sm\:text-lg{font-size:1.125rem;line-height:1.75rem}.sm\:text-sm{font-size:0.875rem;line-height:1.25rem}.sm\:text-xl{font-size:1.25rem;line-height:1.75rem}.sm\:text-xs{font-size:0.75rem;line-height:1rem}}@media (min-width: 768px){.md\:inline-flex{display:inline-flex}}</style></head>
+<!-- ... existing code ... -->
+<body class="relative w-screen h-screen overflow-hidden bg-[#090d16]">
+
+  <!-- 1. الكاميرا / الفيديو بملء الشاشة بالكامل 100vw x 100vh من الحافة للحافة -->
+  <video id="liveVideo" autoplay="" playsinline="" muted="" loop="" class="fixed inset-0 w-full h-full object-cover bg-[#090d16] z-0"></video>
+
+  <!-- Canvas مخفي للتحليل البصري الفوري 60 FPS حتى بدون نت -->
+  <canvas id="captureCanvas" class="hidden"></canvas>
+  <canvas id="motionCanvas" class="hidden" width="80" height="45"></canvas>
+
+  <!-- إطار HUD شفاف خفيف فوق الكاميرا -->
+  <div class="pointer-events-none fixed inset-0 z-10 hud-pitch-grid">
+    <div class="hidden sm:block absolute inset-x-10 top-1/2 -translate-y-1/2 h-[68%] border border-[#00e676]/15 rounded-2xl">
+      <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-[#00e676]/15"></div>
+      <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full border border-[#00e676]/15"></div>
+    </div>
+    <div class="pointer-events-none fixed inset-y-16 inset-x-2 flex justify-between items-center px-1 opacity-45">
+      <div class="w-4 h-20 border-2 border-r-0 border-[#ff3b30] rounded-l-md"></div>
+      <div class="w-4 h-20 border-2 border-l-0 border-[#2979ff] rounded-r-md"></div>
+    </div>
+    <div class="absolute top-2.5 right-2.5 w-6 h-6 border-t-2 border-r-2 border-[#00e676]/70 rounded-tr-lg"></div>
+    <div class="absolute top-2.5 left-2.5 w-6 h-6 border-t-2 border-l-2 border-[#00e676]/70 rounded-tl-lg"></div>
+    <div class="absolute bottom-2.5 right-2.5 w-6 h-6 border-b-2 border-r-2 border-[#00e676]/70 rounded-br-lg"></div>
+    <div class="absolute bottom-2.5 left-2.5 w-6 h-6 border-b-2 border-l-2 border-[#00e676]/70 rounded-bl-lg"></div>
+  </div>
+
+  <!-- وميض حواف الشاشة عند تسجيل هدف أو قرار فوري -->
+  <div id="screenEdgeFlash" class="pointer-events-none fixed inset-0 z-20 border-[8px] border-amber-500 shadow-[inset_0_0_85px_rgba(245,158,11,0.8)] animate-edge-flash hidden"></div>
+
+  <!-- 2. الشريط العلوي العائم (Top Floating HUD) -->
+  <header class="fixed top-2 sm:top-3 inset-x-2 sm:inset-x-4 z-30 flex flex-col gap-1.5 pointer-events-none">
+    <div class="w-full flex flex-wrap items-center justify-between gap-1.5">
+
+      <!-- يمين الشاشة (RTL): حالة البث الفوري + وضع الحفظ مرة واحدة + بدون نت -->
+      <div class="pointer-events-auto flex items-center gap-1.5 bg-[#090d16]/80 backdrop-blur-md border border-white/15 rounded-full px-2.5 py-1 shadow-xl">
+        <button type="button" id="btnToggleAutonomous" class="flex items-center gap-1.5 text-[11px] sm:text-xs font-extrabold text-emerald-300 active:scale-95 transition">
+          <span id="radarDot" class="w-2.5 h-2.5 rounded-full bg-[#00e676] animate-radar"></span>
+          <span id="radarStatusText">فوري من أول مرة</span>
+        </button>
+
+        <button type="button" id="btnLockOnceMode" title="يلتقط ويحفظ الحدث في مرة واحدة دون تكرار" class="px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-slate-300 text-[10px] sm:text-[11px] font-black transition active:scale-95">
+          <span id="lockOnceLabel">متكرر</span>
+        </button>
+
+        <span id="offlineStatusPill" class="md:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-200 border border-sky-400/30">
+          <span>⚡</span>
+          <span id="offlineStatusText">جاهز بدون نت</span>
+        </span>
+      </div>
+
+      <!-- منتصف الشاشة: لوحة النتيجة المباشرة (الأحمر vs الأزرق) -->
+      <div class="pointer-events-auto order-3 sm:order-2 w-full sm:w-auto flex items-center justify-center">
+        <div class="rounded-full bg-[#090d16]/85 backdrop-blur-md border border-white/15 px-3 py-1 shadow-2xl flex items-center gap-2 sm:gap-3">
+          <div class="flex items-center gap-1.5 bg-[#ff3b30]/20 border border-[#ff3b30]/50 rounded-full px-2.5 py-0.5">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#ff3b30]"></span>
+            <span class="text-xs sm:text-sm font-black text-rose-100">الأحمر</span>
+            <button type="button" id="btnRedMinus" aria-label="إنقاص هدف الأحمر" class="w-5 h-5 rounded-full bg-white/10 hover:bg-white/20 text-xs font-black text-white flex items-center justify-center active:scale-90">-</button>
+            <span id="redScoreText" class="font-mono text-base sm:text-xl font-black text-white px-1">0</span>
+            <button type="button" id="btnRedPlus" aria-label="إضافة هدف الأحمر" class="w-5 h-5 rounded-full bg-[#ff3b30] hover:bg-rose-500 text-xs font-black text-white flex items-center justify-center active:scale-90">+</button>
+          </div>
+
+          <div class="px-2.5 py-0.5 rounded-full bg-white/10 border border-white/10 font-mono text-xs sm:text-sm font-black text-[#00e676]" id="matchTimerDisplay">00:44</div>
+
+          <div class="flex items-center gap-1.5 bg-[#2979ff]/20 border border-[#2979ff]/50 rounded-full px-2.5 py-0.5">
+            <button type="button" id="btnBlueMinus" aria-label="إنقاص هدف الأزرق" class="w-5 h-5 rounded-full bg-white/10 hover:bg-white/20 text-xs font-black text-white flex items-center justify-center active:scale-90">-</button>
+            <span id="blueScoreText" class="font-mono text-base sm:text-xl font-black text-white px-1">0</span>
+            <button type="button" id="btnBluePlus" aria-label="إضافة هدف الأزرق" class="w-5 h-5 rounded-full bg-[#2979ff] hover:bg-blue-500 text-xs font-black text-white flex items-center justify-center active:scale-90">+</button>
+            <span class="text-xs sm:text-sm font-black text-blue-100">الأزرق</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-[#2979ff]"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- يسار الشاشة (RTL): زر فتح + زر تثبيت بجانبه + مشاركة + كاميرا + صوت + سجل -->
+      <div class="pointer-events-auto order-2 sm:order-3 flex items-center gap-1 bg-[#090d16]/80 backdrop-blur-md border border-white/15 rounded-full px-2 py-1 shadow-xl">
+        <button type="button" id="btnOpenTop" class="px-2.5 py-1 rounded-full bg-white/15 hover:bg-white/25 text-white text-[11px] sm:text-xs font-black transition active:scale-95 flex items-center gap-1">
+          <span>🎥</span>
+          <span>فتح</span>
+        </button>
+
+        <button type="button" id="btnInstallTop" class="px-2.5 py-1 rounded-full bg-gradient-to-r from-[#00e676] to-emerald-400 hover:brightness-110 text-slate-950 text-[11px] sm:text-xs font-black shadow-md transition active:scale-95 flex items-center gap-1">
+          <span>📲</span>
+          <span id="installTopLabel">تثبيت</span>
+        </button>
+
+        <button type="button" id="btnDownloadFileTop" title="تحميل ملف التطبيق على التابلت" class="px-2 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/50 text-emerald-200 text-[11px] sm:text-xs font-black transition active:scale-95 flex items-center gap-1">
+          <span>⬇️</span>
+          <span class="hidden sm:inline">تحميل</span>
+        </button>
+
+        <button type="button" id="btnShareTop" title="مشاركة التطبيق والنتائج" class="px-2 py-1 rounded-full bg-[#2979ff]/25 hover:bg-[#2979ff]/40 border border-[#2979ff]/50 text-blue-200 text-[11px] sm:text-xs font-black transition active:scale-95 flex items-center gap-1">
+          <span>📤</span>
+          <span class="hidden sm:inline">مشاركة</span>
+        </button>
+
+        <button type="button" id="btnFlipCamera" title="تبديل الكاميرا" class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold flex items-center justify-center active:scale-95">
+          🔄
+        </button>
+
+        <button type="button" id="btnToggleAudio" title="الصوت والصافرة" class="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-[#00e676] text-xs font-bold flex items-center justify-center active:scale-95">
+          <span id="audioStateIcon">🔊</span>
+        </button>
+
+        <button type="button" id="btnOpenLogDrawer" class="px-2 py-1 rounded-full bg-white/10 hover:bg-white/20 text-white text-[11px] font-black flex items-center gap-1 active:scale-95">
+          <span>📋</span>
+          <span id="logCountBadge" class="font-mono text-[#00e676]">12</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- شريط التتبع اللحظي ورسائل المشاركة/الحفظ -->
+    <div class="self-center px-3 py-0.5 rounded-full bg-black/65 backdrop-blur-sm border border-white/10 text-[11px] font-bold text-slate-200 flex items-center gap-2">
+      <span id="telemetryText">تعذر فتح الكاميرا — اختر ملف فيديو أو اضغط أزرار القرار الفورية</span>
+    </div>
+  </header>
+
+  <!-- 3. الإشعار الديناميكي المركزي المنبثق (يظهر ثم يختفي تلقائياً) -->
+  <div id="centerEventOverlay" class="pointer-events-none fixed inset-0 z-30 flex items-center justify-center p-4 hidden">
+    <div id="centerEventCard" class="animate-event-pop max-w-lg w-full rounded-3xl bg-[#090d16]/94 backdrop-blur-xl border-2 border-amber-400 px-6 py-5 sm:px-8 sm:py-7 text-center shadow-[0_20px_70px_rgba(0,0,0,0.9)] space-y-2">
+      <div id="centerEventEmoji" class="text-4xl sm:text-6xl">✋</div>
+      <div id="centerEventBadge" class="inline-block px-3 py-0.5 rounded-full bg-[#00e676]/20 border border-[#00e676]/40 text-xs sm:text-sm font-black text-[#00e676]">لمسة يد • HANDBALL • قرار فوري في مرة واحدة</div>
+      <h2 id="centerEventTitle" class="text-2xl sm:text-4xl font-black text-white leading-tight">لمسة يد! مخالفة مباشرة</h2>
+      <p id="centerEventSubtitle" class="text-xs sm:text-base font-bold text-slate-200">محفوظ في مرة واحدة بدون تسلل وبدون كروت</p>
+    </div>
+  </div>
+
+  <!-- 4. الشريط السفلي العائم فائق النحافة -->
+  <footer class="fixed bottom-2 sm:bottom-3.5 inset-x-2 sm:inset-x-5 z-30 flex flex-col items-center pointer-events-none">
+    <div class="pointer-events-auto max-w-5xl w-full rounded-2xl bg-[#090d16]/85 backdrop-blur-md border border-white/15 p-2 sm:px-3.5 sm:py-2 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-2">
+
+      <!-- أزرار التدخل اليدوي الفوري بلمسة واحدة -->
+      <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full sm:w-auto justify-start sm:justify-center">
+        <button type="button" data-quick-event="goal_red" class="quick-event-btn shrink-0 px-2.5 py-1.5 rounded-xl bg-[#ff3b30] hover:bg-rose-500 text-white text-xs font-black shadow transition active:scale-95">
+          ⚽ هدف أحمر
+        </button>
+        <button type="button" data-quick-event="goal_blue" class="quick-event-btn shrink-0 px-2.5 py-1.5 rounded-xl bg-[#2979ff] hover:bg-blue-500 text-white text-xs font-black shadow transition active:scale-95">
+          ⚽ هدف أزرق
+        </button>
+        <button type="button" data-quick-event="foul" class="quick-event-btn shrink-0 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow transition active:scale-95">
+          ⚠️ فاول
+        </button>
+        <button type="button" data-quick-event="handball" class="quick-event-btn shrink-0 px-2.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black shadow transition active:scale-95">
+          ✋ يد
+        </button>
+        <button type="button" data-quick-event="penalty" class="quick-event-btn shrink-0 px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow transition active:scale-95">
+          🎯 جزاء
+        </button>
+        <button type="button" data-quick-event="throw_red" class="quick-event-btn shrink-0 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-[#ff3b30]/50 text-rose-200 text-xs font-black transition active:scale-95">
+          🚩 تماس على الأزرق
+        </button>
+        <button type="button" data-quick-event="throw_blue" class="quick-event-btn shrink-0 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-[#2979ff]/50 text-blue-200 text-xs font-black transition active:scale-95">
+          🚩 تماس على الأحمر
+        </button>
+      </div>
+
+      <!-- أدوات الفيديو وملء الشاشة والمشاركة -->
+      <div class="flex items-center justify-end gap-1.5 w-full sm:w-auto border-t sm:border-t-0 border-white/10 pt-1.5 sm:pt-0">
+        <button type="button" id="btnShareBottom" title="مشاركة" class="px-2.5 py-1.5 rounded-xl bg-[#2979ff]/20 hover:bg-[#2979ff]/35 border border-[#2979ff]/40 text-blue-200 text-xs font-bold transition active:scale-95 flex items-center gap-1">
+          <span>📤</span>
+          <span>مشاركة</span>
+        </button>
+
+        <label for="videoFileInput" title="تشغيل فيديو تجريبي" class="cursor-pointer px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-sky-300 text-xs font-bold transition active:scale-95 flex items-center gap-1">
+          <span>🎞️</span>
+          <span>فيديو</span>
+          <input type="file" id="videoFileInput" accept="video/*" class="hidden">
+        </label>
+
+        <button type="button" id="btnFullscreenToggle" title="ملء الشاشة" class="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-bold transition active:scale-95 flex items-center gap-1">
+          <span>⛶</span>
+          <span>ملء الشاشة</span>
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- 5. شاشة البداية الترحيبية مع أزرار (فتح) و (تثبيت) بجانب بعضهما و (مشاركة) -->
+  <div id="startWelcomeOverlay" class="fixed inset-0 z-50 bg-[#090d16]/95 backdrop-blur-xl flex items-center justify-center p-4 hidden">
+    <div class="max-w-md w-full rounded-3xl bg-slate-900/95 border border-[#00e676]/40 p-6 sm:p-7 text-center shadow-2xl space-y-4">
+      <div class="w-16 h-16 sm:w-20 sm:h-20 mx-auto rounded-3xl bg-gradient-to-br from-[#00e676]/25 via-emerald-500/15 to-[#2979ff]/25 border border-[#00e676]/50 flex items-center justify-center text-3xl sm:text-4xl shadow-lg">
+        📹
+      </div>
+
+      <div class="space-y-1.5">
+        <span class="inline-block px-3 py-0.5 rounded-full bg-[#00e676]/15 border border-[#00e676]/40 text-xs font-black text-[#00e676]">
+          التقاط في مرة واحدة • يعمل بدون نت
+        </span>
+        <h1 class="text-2xl sm:text-3xl font-black text-white">
+          كاميرا الحكم الذكي الفوري
+        </h1>
+        <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+          يحسب <span class="text-[#00e676] font-bold">الأهداف، الفاولات، لمسة اليد، ضربات الجزاء، ورمية التماس</span> من أول مرة ويحفظها مرة واحدة فوراً.
+        </p>
+      </div>
+
+      <div class="rounded-2xl bg-rose-950/40 border border-rose-500/35 px-3 py-2 text-xs font-extrabold text-amber-200">
+        🚫 بدون تسلل نهائياً • بدون كروت صفراء أو حمراء
+      </div>
+
+      <div class="space-y-2.5 pt-1">
+        <!-- صف يحتوي على (فتح) و (تثبيت) بجانب بعضهما بوضوح -->
+        <div class="grid grid-cols-2 gap-2.5">
+          <button type="button" id="btnStartImmediate" class="py-3.5 px-4 rounded-2xl bg-gradient-to-r from-[#00e676] to-emerald-400 hover:brightness-110 text-slate-950 font-black text-sm sm:text-base shadow-xl shadow-emerald-500/25 transition active:scale-95 flex items-center justify-center gap-1.5">
+            <span>🎥</span>
+            <span>فتح</span>
+          </button>
+
+          <button type="button" id="btnInstallWelcome" class="py-3.5 px-4 rounded-2xl bg-[#2979ff] hover:bg-blue-500 text-white font-black text-sm sm:text-base shadow-xl shadow-blue-500/25 transition active:scale-95 flex items-center justify-center gap-1.5">
+            <span>📲</span>
+            <span id="installWelcomeLabel">تثبيت</span>
+          </button>
+        </div>
+
+        <button type="button" id="btnDownloadFileWelcome" class="w-full py-2.5 px-4 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 font-black text-xs sm:text-sm transition active:scale-95 flex items-center justify-center gap-2">
+          <span>⬇️</span>
+          <span>تنزيل ملف التطبيق على التابلت</span>
+        </button>
+
+        <button type="button" id="btnShareWelcome" class="w-full py-2.5 px-4 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-blue-200 font-black text-xs sm:text-sm transition active:scale-95 flex items-center justify-center gap-2">
+          <span>📤</span>
+          <span>مشاركة التطبيق مع شخص آخر</span>
+        </button>
+
+        <label for="videoFileInputStart" class="cursor-pointer w-full py-2.5 px-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/15 text-sky-300 text-xs font-bold transition flex items-center justify-center gap-2">
+          <span>🎞️</span>
+          <span>أو اختر فيديو مسجّل للتجربة الفورية</span>
+          <input type="file" id="videoFileInputStart" accept="video/*" class="hidden">
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. نافذة دليل التثبيت السريع على التابلت / الموبايل / جوجل / الكمبيوتر -->
+  <div id="installGuideModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+    <div class="max-w-md w-full rounded-3xl bg-slate-900 border border-[#00e676]/50 p-5 sm:p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">📲</span>
+          <h3 class="text-base sm:text-lg font-black text-white">تثبيت التطبيق على جهازك</h3>
+        </div>
+        <button type="button" id="btnCloseInstallGuide" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black flex items-center justify-center">✕</button>
+      </div>
+
+      <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+        ثبّت <span class="text-[#00e676] font-bold">كاميرا الحكم الذكي الفوري</span> على التابلت، الموبايل، جوجل كروم، أو الكمبيوتر ليعمل كتطبيق مستقل وبدون نت:
+      </p>
+
+      <div class="space-y-2.5 text-xs sm:text-sm">
+        <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start gap-3">
+          <span class="px-2 py-1 rounded-lg bg-[#00e676]/20 text-emerald-300 font-black shrink-0">تابلت / أندرويد / جوجل</span>
+          <div class="text-slate-200">
+            اضغط قائمة المتصفح <span class="font-black text-white">(⋮)</span> ثم اختر <span class="font-black text-[#00e676]">«تثبيت التطبيق» (Install App)</span> أو <span class="font-bold">«إضافة إلى الشاشة الرئيسية»</span>.
+          </div>
+        </div>
+
+        <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start gap-3">
+          <span class="px-2 py-1 rounded-lg bg-[#2979ff]/20 text-blue-300 font-black shrink-0">آيفون / آيباد</span>
+          <div class="text-slate-200">
+            اضغط زر المشاركة <span class="font-black text-white">(Share ⬆️)</span> ثم اختر <span class="font-black text-[#00e676]">«إضافة إلى الشاشة الرئيسية»</span>.
+          </div>
+        </div>
+
+        <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start gap-3">
+          <span class="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-black shrink-0">كمبيوتر PC</span>
+          <div class="text-slate-200">
+            اضغط أيقونة التثبيت <span class="font-black text-[#00e676]">(⊕)</span> في شريط العنوان أعلى المتصفح.
+          </div>
+        </div>
+      </div>
+
+      <button type="button" id="btnConfirmInstallGuide" class="w-full py-3 rounded-2xl bg-[#00e676] text-slate-950 font-black text-sm active:scale-95 transition">
+        تمام 👍
+      </button>
+    </div>
+  </div>
+
+  <!-- 7. درج سجل المباراة والإحصائيات القابل للطي -->
+  <div id="logDrawerBackdrop" class="fixed inset-0 z-40 bg-black/75 backdrop-blur-sm hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="w-full sm:max-w-xl max-h-[82vh] rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-white/15 p-4 sm:p-5 shadow-2xl flex flex-col gap-3.5">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div>
+          <h3 class="text-base sm:text-lg font-black text-white">سجل القرارات والإحصائيات</h3>
+          <p class="text-[11px] text-slate-400">محفوظ في مرة واحدة • بدون تسلل وبدون كروت صفراء أو حمراء</p>
+        </div>
+        <button type="button" id="btnCloseLogDrawer" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black flex items-center justify-center">✕</button>
+      </div>
+
+      <div class="flex items-center justify-around rounded-2xl bg-slate-950 border border-white/10 py-2.5 px-3">
+        <div class="text-center">
+          <div class="text-xs font-bold text-rose-400">الفريق الأحمر</div>
+          <div id="drawerRedScore" class="font-mono text-2xl font-black text-white">0</div>
+        </div>
+        <div class="text-xs font-black text-slate-500">VS</div>
+        <div class="text-center">
+          <div class="text-xs font-bold text-blue-400">الفريق الأزرق</div>
+          <div id="drawerBlueScore" class="font-mono text-2xl font-black text-white">0</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-5 gap-1.5 text-center">
+        <div class="rounded-xl bg-slate-950 border border-white/10 p-2">
+          <div id="statGoals" class="font-mono text-sm font-black text-[#00e676]">0</div>
+          <div class="text-[10px] text-slate-400 font-bold">أهداف</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-white/10 p-2">
+          <div id="statFouls" class="font-mono text-sm font-black text-indigo-300">1</div>
+          <div class="text-[10px] text-slate-400 font-bold">فاولات</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-white/10 p-2">
+          <div id="statHands" class="font-mono text-sm font-black text-amber-300">11</div>
+          <div class="text-[10px] text-slate-400 font-bold">لمسة يد</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-white/10 p-2">
+          <div id="statPenalties" class="font-mono text-sm font-black text-rose-300">0</div>
+          <div class="text-[10px] text-slate-400 font-bold">جزاء</div>
+        </div>
+        <div class="rounded-xl bg-slate-950 border border-white/10 p-2">
+          <div id="statThrows" class="font-mono text-sm font-black text-sky-300">0</div>
+          <div class="text-[10px] text-slate-400 font-bold">تماس</div>
+        </div>
+      </div>
+
+      <div id="drawerLogList" class="flex-1 overflow-y-auto space-y-2 pr-0.5 min-h-[150px]">
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:37</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:36</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:36</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:36</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:36</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:35</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:35</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:35</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:35</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:34</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">✋</span>
+                <div>
+                  <div class="text-sm font-black text-white">لمسة يد! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:33</span>
+            </div>
+          
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">⚠️</span>
+                <div>
+                  <div class="text-sm font-black text-white">فاول! مخالفة مباشرة</div>
+                  <div class="text-xs text-slate-300 mt-0.5">محفوظ في مرة واحدة بدون تسلل وبدون كروت</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">قرار فوري في مرة واحدة</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">00:15</span>
+            </div>
+          </div>
+
+      <div class="flex items-center gap-2 pt-2 border-t border-white/10">
+        <button type="button" id="btnShareLog" class="flex-1 py-2.5 rounded-xl bg-[#2979ff]/20 hover:bg-[#2979ff]/30 border border-[#2979ff]/40 text-blue-200 text-xs font-black transition active:scale-95">
+          📤 مشاركة
+        </button>
+        <button type="button" id="btnCopySummary" class="flex-1 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-black transition active:scale-95">
+          📋 نسخ الملخص
+        </button>
+        <button type="button" id="btnResetMatch" class="flex-1 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-black transition active:scale-95">
+          🔄 تصفير المباراة
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- منطق التشغيل الفوري + العمل بدون نت + الحفظ في مرة واحدة + التثبيت + المشاركة -->
+  <script>
+    (function () {
+      'use strict';
+
+      // يُحقن مفتاح Gemini API تلقائياً عند توفر الإنترنت
+      const apiKey = "";
+
+      const state = {
+        stream: null,
+        facingMode: 'environment',
+        isVideoReady: false,
+        autonomousActive: true,
+        lockOnceMode: true, // التقاط وحفظ في مرة واحدة دون تكرار
+        capturedOnceSignatures: new Set(),
+        activeRequests: 0,
+        maxConcurrentRequests: 2,
+        audioEnabled: true,
+        isOnline: navigator.onLine !== false,
+        elapsedSeconds: 0,
+        timerInterval: null,
+        visionInterval: null,
+        opticalRafId: null,
+        prevMotionPixels: null,
+        latestMotionScore: 0,
+        peakMotionSinceLastCheck: 0,
+        lastEventType: '',
+        lastEventTimestamp: 0,
+        deferredInstallPrompt: null,
+        isAppInstalled: false,
+        scores: { red: 0, blue: 0 },
+        counts: { goals: 0, fouls: 0, hands: 0, penalties: 0, throws: 0 },
+        logs: []
+      };
+
+      const els = {
+        liveVideo: document.getElementById('liveVideo'),
+        captureCanvas: document.getElementById('captureCanvas'),
+        motionCanvas: document.getElementById('motionCanvas'),
+        screenEdgeFlash: document.getElementById('screenEdgeFlash'),
+
+        redScoreText: document.getElementById('redScoreText'),
+        blueScoreText: document.getElementById('blueScoreText'),
+        btnRedMinus: document.getElementById('btnRedMinus'),
+        btnRedPlus: document.getElementById('btnRedPlus'),
+        btnBlueMinus: document.getElementById('btnBlueMinus'),
+        btnBluePlus: document.getElementById('btnBluePlus'),
+        matchTimerDisplay: document.getElementById('matchTimerDisplay'),
+
+        btnToggleAutonomous: document.getElementById('btnToggleAutonomous'),
+        radarDot: document.getElementById('radarDot'),
+        radarStatusText: document.getElementById('radarStatusText'),
+        btnLockOnceMode: document.getElementById('btnLockOnceMode'),
+        lockOnceLabel: document.getElementById('lockOnceLabel'),
+        offlineStatusPill: document.getElementById('offlineStatusPill'),
+        offlineStatusText: document.getElementById('offlineStatusText'),
+        telemetryText: document.getElementById('telemetryText'),
+
+        btnOpenTop: document.getElementById('btnOpenTop'),
+        btnInstallTop: document.getElementById('btnInstallTop'),
+        installTopLabel: document.getElementById('installTopLabel'),
+        btnDownloadFileTop: document.getElementById('btnDownloadFileTop'),
+        btnDownloadFileWelcome: document.getElementById('btnDownloadFileWelcome'),
+        btnShareTop: document.getElementById('btnShareTop'),
+        btnShareBottom: document.getElementById('btnShareBottom'),
+        btnShareWelcome: document.getElementById('btnShareWelcome'),
+        btnShareLog: document.getElementById('btnShareLog'),
+
+        btnInstallWelcome: document.getElementById('btnInstallWelcome'),
+        installWelcomeLabel: document.getElementById('installWelcomeLabel'),
+        installGuideModal: document.getElementById('installGuideModal'),
+        btnCloseInstallGuide: document.getElementById('btnCloseInstallGuide'),
+        btnConfirmInstallGuide: document.getElementById('btnConfirmInstallGuide'),
+
+        centerEventOverlay: document.getElementById('centerEventOverlay'),
+        centerEventCard: document.getElementById('centerEventCard'),
+        centerEventEmoji: document.getElementById('centerEventEmoji'),
+        centerEventBadge: document.getElementById('centerEventBadge'),
+        centerEventTitle: document.getElementById('centerEventTitle'),
+        centerEventSubtitle: document.getElementById('centerEventSubtitle'),
+
+        quickEventBtns: document.querySelectorAll('.quick-event-btn'),
+        btnFlipCamera: document.getElementById('btnFlipCamera'),
+        videoFileInput: document.getElementById('videoFileInput'),
+        videoFileInputStart: document.getElementById('videoFileInputStart'),
+        btnToggleAudio: document.getElementById('btnToggleAudio'),
+        audioStateIcon: document.getElementById('audioStateIcon'),
+        btnFullscreenToggle: document.getElementById('btnFullscreenToggle'),
+
+        startWelcomeOverlay: document.getElementById('startWelcomeOverlay'),
+        btnStartImmediate: document.getElementById('btnStartImmediate'),
+
+        btnOpenLogDrawer: document.getElementById('btnOpenLogDrawer'),
+        logCountBadge: document.getElementById('logCountBadge'),
+        logDrawerBackdrop: document.getElementById('logDrawerBackdrop'),
+        btnCloseLogDrawer: document.getElementById('btnCloseLogDrawer'),
+        btnCopySummary: document.getElementById('btnCopySummary'),
+        btnResetMatch: document.getElementById('btnResetMatch'),
+        drawerRedScore: document.getElementById('drawerRedScore'),
+        drawerBlueScore: document.getElementById('drawerBlueScore'),
+        drawerLogList: document.getElementById('drawerLogList'),
+        emptyLogPlaceholder: document.getElementById('emptyLogPlaceholder'),
+
+        statGoals: document.getElementById('statGoals'),
+        statFouls: document.getElementById('statFouls'),
+        statHands: document.getElementById('statHands'),
+        statPenalties: document.getElementById('statPenalties'),
+        statThrows: document.getElementById('statThrows')
+      };
+
+      // =========================================================
+      // 1. تسجيل Service Worker و Manifest للعمل بدون نت والتثبيت
+      // =========================================================
+      function setupOfflineServiceWorkerAndPwa() {
+        try {
+          const svgIcon = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+              <defs>
+                <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#090d16"/>
+                  <stop offset="100%" stop-color="#0f172a"/>
+                </linearGradient>
+              </defs>
+              <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+              <rect x="28" y="28" width="456" height="456" rx="92" fill="none" stroke="#00e676" stroke-width="14"/>
+              <circle cx="256" cy="215" r="78" fill="#00e676" fill-opacity="0.18" stroke="#00e676" stroke-width="12"/>
+              <text x="256" y="236" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-weight="900" font-size="68">VAR</text>
+              <text x="256" y="375" text-anchor="middle" fill="#00e676" font-family="Arial, sans-serif" font-weight="900" font-size="44">OFFLINE</text>
+            </svg>
+          `.trim();
+
+          const iconDataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgIcon)}`;
+          const appleIconLink = document.getElementById('appleTouchIconLink');
+          if (appleIconLink) appleIconLink.href = iconDataUri;
+
+          const manifestObj = {
+            name: 'كاميرا الحكم الذكي الفوري - Instant AI Camera VAR',
+            short_name: 'حكم الفار الذكي',
+            description: 'تحكيم كاميرا فوري في مرة واحدة ويعمل بدون نت على التابلت والموبايل والكمبيوتر',
+            start_url: window.location.href,
+            display: 'standalone',
+            orientation: 'landscape',
+            background_color: '#090d16',
+            theme_color: '#090d16',
+            dir: 'rtl',
+            lang: 'ar',
+            icons: [
+              { src: iconDataUri, sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable' },
+              { src: iconDataUri, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
+            ]
+          };
+
+          const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: 'application/manifest+json' });
+          const manifestUrl = URL.createObjectURL(manifestBlob);
+          const manifestLink = document.getElementById('pwaManifestLink');
+          if (manifestLink) manifestLink.href = manifestUrl;
+
+          // تسجيل Service Worker مدمج للعمل بدون نت (Offline Cache)
+          if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
+            const swCode = `
+              const CACHE_NAME = 'instant-ai-var-offline-v1';
+              self.addEventListener('install', (event) => {
+                self.skipWaiting();
+                event.waitUntil(
+                  caches.open(CACHE_NAME).then((cache) => cache.addAll(['./']).catch(() => {}))
+                );
+              });
+              self.addEventListener('activate', (event) => {
+                event.waitUntil(
+                  caches.keys().then((keys) =>
+                    Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+                  ).then(() => self.clients.claim())
+                );
+              });
+              self.addEventListener('fetch', (event) => {
+                if (event.request.method !== 'GET') return;
+                event.respondWith(
+                  caches.match(event.request).then((cached) => {
+                    const fetchPromise = fetch(event.request)
+                      .then((networkRes) => {
+                        if (networkRes && networkRes.status === 200 && event.request.url.startsWith(self.location.origin)) {
+                          const clone = networkRes.clone();
+                          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
+                        }
+                        return networkRes;
+                      })
+                      .catch(() => cached || new Response('', { status: 200 }));
+                    return cached || fetchPromise;
+                  })
+                );
+              });
+            `;
+            const swBlob = new Blob([swCode], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(swBlob);
+            navigator.serviceWorker.register(swUrl).catch(() => {});
+          }
+        } catch (_) {}
+
+        const isStandalone =
+          window.matchMedia('(display-mode: standalone)').matches ||
+          window.navigator.standalone === true;
+
+        if (isStandalone) {
+          markAsInstalledUI();
+        }
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+          e.preventDefault();
+          state.deferredInstallPrompt = e;
+          els.installTopLabel.textContent = 'تثبيت';
+          els.installWelcomeLabel.textContent = 'تثبيت';
+        });
+
+        window.addEventListener('appinstalled', () => {
+          state.deferredInstallPrompt = null;
+          markAsInstalledUI();
+        });
+
+        const updateNetworkBadge = () => {
+          state.isOnline = navigator.onLine !== false;
+          els.offlineStatusPill.classList.remove('hidden');
+          els.offlineStatusText.textContent = state.isOnline ? 'جاهز بدون نت' : 'وضع بدون نت نشط';
+        };
+        window.addEventListener('online', updateNetworkBadge);
+        window.addEventListener('offline', updateNetworkBadge);
+        updateNetworkBadge();
+      }
+
+      function markAsInstalledUI() {
+        state.isAppInstalled = true;
+        els.installTopLabel.textContent = 'مثبّت ✓';
+        els.installWelcomeLabel.textContent = 'مثبّت ✓';
+      }
+
+      function downloadAppHtmlFile() {
+        try {
+          const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+          const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'كاميرا-الحكم-الذكي.html';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 1500);
+          els.telemetryText.textContent = '✓ تم تنزيل ملف التطبيق على التابلت — افتحيه من التنزيلات أو أضيفيه للشاشة الرئيسية';
+        } catch (_) {
+          els.installGuideModal.classList.remove('hidden');
+        }
+      }
+
+      async function handleInstallClick() {
+        if (state.isAppInstalled) {
+          els.telemetryText.textContent = '✓ التطبيق مثبّت على جهازك ويعمل بدون نت';
+          return;
+        }
+        if (state.deferredInstallPrompt) {
+          try {
+            state.deferredInstallPrompt.prompt();
+            const choice = await state.deferredInstallPrompt.userChoice;
+            if (choice && choice.outcome === 'accepted') {
+              markAsInstalledUI();
+            }
+            state.deferredInstallPrompt = null;
+            return;
+          } catch (_) {}
+        }
+        els.installGuideModal.classList.remove('hidden');
+      }
+
+      // =========================================================
+      // 2. مشاركة التطبيق والنتائج مع أي شخص (Web Share + Clipboard)
+      // =========================================================
+      async function shareAppOrSummary() {
+        const scoreSummary = `الأحمر ${state.scores.red} - ${state.scores.blue} الأزرق`;
+        const shareText = [
+          'كاميرا الحكم الذكي الفوري (Instant AI Camera VAR Referee)',
+          `النتيجة: ${scoreSummary}`,
+          'التقاط في مرة واحدة • يعمل بدون نت • بدون تسلل وبدون كروت صفراء أو حمراء',
+          window.location.href
+        ].join('\n');
+
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: 'كاميرا الحكم الذكي الفوري',
+              text: shareText,
+              url: window.location.href
+            });
+            els.telemetryText.textContent = '✓ تمت مشاركة التطبيق بنجاح';
+            return;
+          } catch (err) {
+            if (err && err.name === 'AbortError') return;
+          }
+        }
+
+        try {
+          const area = document.createElement('textarea');
+          area.value = shareText;
+          area.setAttribute('readonly', '');
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          document.body.removeChild(area);
+          els.telemetryText.textContent = '✓ تم نسخ رابط وملخص التطبيق للمشاركة';
+        } catch (_) {
+          els.telemetryText.textContent = 'شارك الرابط من شريط المتصفح: ' + window.location.href;
+        }
+      }
+
+      // =========================================================
+      // 3. محرك الصوت والصافرة والنطق العربي (يعمل بدون نت)
+      // =========================================================
+      let audioCtx = null;
+      function ensureAudioContext() {
+        if (!state.audioEnabled) return null;
+        try {
+          if (!audioCtx) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            if (Ctx) audioCtx = new Ctx();
+          }
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+          return audioCtx;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function playWhistle(isLong = false) {
+        if (!state.audioEnabled) return;
+        const ctx = ensureAudioContext();
+        if (!ctx) return;
+
+        try {
+          const now = ctx.currentTime;
+          const duration = isLong ? 0.65 : 0.32;
+          const osc = ctx.createOscillator();
+          const lfo = ctx.createOscillator();
+          const lfoGain = ctx.createGain();
+          const mainGain = ctx.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(2850, now);
+          osc.frequency.exponentialRampToValueAtTime(2680, now + duration);
+
+          lfo.type = 'sine';
+          lfo.frequency.setValueAtTime(36, now);
+          lfoGain.gain.setValueAtTime(110, now);
+
+          lfo.connect(lfoGain);
+          lfoGain.connect(osc.frequency);
+
+          mainGain.gain.setValueAtTime(0.001, now);
+          mainGain.gain.linearRampToValueAtTime(0.25, now + 0.03);
+          mainGain.gain.setValueAtTime(0.22, now + duration - 0.06);
+          mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+          osc.connect(mainGain);
+          mainGain.connect(ctx.destination);
+
+          osc.start(now);
+          lfo.start(now);
+          osc.stop(now + duration + 0.02);
+          lfo.stop(now + duration + 0.02);
+        } catch (_) {}
+      }
+
+      function playGoalHorn() {
+        if (!state.audioEnabled) return;
+        const ctx = ensureAudioContext();
+        if (!ctx) return;
+
+        try {
+          const now = ctx.currentTime;
+          const notes = [523.25, 659.25, 783.99, 1046.5];
+          notes.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            const start = now + idx * 0.09;
+            osc.frequency.setValueAtTime(freq, start);
+            gain.gain.setValueAtTime(0.001, start);
+            gain.gain.linearRampToValueAtTime(0.18, start + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, start + 0.26);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(start);
+            osc.stop(start + 0.28);
+          });
+        } catch (_) {}
+      }
+
+      function speakArabic(phrase) {
+        if (!state.audioEnabled || !('speechSynthesis' in window)) return;
+        try {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance(phrase);
+          utter.lang = 'ar-SA';
+          utter.rate = 1.08;
+          utter.pitch = 1.0;
+          window.speechSynthesis.speak(utter);
+        } catch (_) {}
+      }
+
+      // =========================================================
+      // 4. الكاميرا وملء الشاشة
+      // =========================================================
+      function enterFullScreenMode() {
+        try {
+          const docEl = document.documentElement;
+          if (!document.fullscreenElement && docEl.requestFullscreen) {
+            docEl.requestFullscreen().catch(() => {});
+          }
+        } catch (_) {}
+      }
+
+      function toggleFullScreenMode() {
+        try {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen?.().catch(() => {});
+          } else {
+            document.exitFullscreen?.().catch(() => {});
+          }
+        } catch (_) {}
+      }
+
+      async function startLiveCamera(requestedFacing = state.facingMode) {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          els.telemetryText.textContent = 'الكاميرا غير مدعومة — يمكنك رفع فيديو أو استخدام أزرار التحكيم الفوري';
+          return false;
+        }
+
+        try {
+          if (state.stream) {
+            state.stream.getTracks().forEach((t) => t.stop());
+            state.stream = null;
+          }
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: requestedFacing } },
+            audio: false
+          });
+
+          state.stream = stream;
+          state.facingMode = requestedFacing;
+          els.liveVideo.srcObject = stream;
+          await els.liveVideo.play();
+          state.isVideoReady = true;
+          els.telemetryText.textContent = 'مباشر • كشف فوري في مرة واحدة (بدون نت أو مع نت)';
+          return true;
+        } catch (_) {
+          try {
+            const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            state.stream = fallbackStream;
+            els.liveVideo.srcObject = fallbackStream;
+            await els.liveVideo.play();
+            state.isVideoReady = true;
+            els.telemetryText.textContent = 'مباشر • كاميرا نشطة والكشف الفوري يعمل';
+            return true;
+          } catch (err2) {
+            els.telemetryText.textContent = 'تعذر فتح الكاميرا — اختر ملف فيديو أو اضغط أزرار القرار الفورية';
+            return false;
+          }
+        }
+      }
+
+      function loadDemoVideoFile(file) {
+        if (!file) return;
+        try {
+          if (state.stream) {
+            state.stream.getTracks().forEach((t) => t.stop());
+            state.stream = null;
+          }
+          const url = URL.createObjectURL(file);
+          els.liveVideo.srcObject = null;
+          els.liveVideo.src = url;
+          els.liveVideo.play();
+          state.isVideoReady = true;
+          els.startWelcomeOverlay.classList.add('hidden');
+          ensureAudioContext();
+          startMatchClock();
+          startOptical60FpsLoop();
+          startAutonomousVisionLoop();
+          els.telemetryText.textContent = 'تحليل الفيديو الفوري في مرة واحدة نشط...';
+        } catch (_) {}
+      }
+
+      function startMatchClock() {
+        if (state.timerInterval) return;
+        state.timerInterval = setInterval(() => {
+          state.elapsedSeconds += 1;
+          const mins = String(Math.floor(state.elapsedSeconds / 60)).padStart(2, '0');
+          const secs = String(state.elapsedSeconds % 60).padStart(2, '0');
+          els.matchTimerDisplay.textContent = `${mins}:${secs}`;
+        }, 1000);
+      }
+
+      // =========================================================
+      // 5. محرك الرصد البصري المحلي 60 FPS (يعمل بدون نت) + الذكاء الاصطناعي
+      // =========================================================
+      function startOptical60FpsLoop() {
+        if (state.opticalRafId) cancelAnimationFrame(state.opticalRafId);
+
+        const mCanvas = els.motionCanvas;
+        const w = 80;
+        const h = 45;
+        mCanvas.width = w;
+        mCanvas.height = h;
+        const ctx = mCanvas.getContext('2d', { willReadFrequently: true });
+
+        function tickOptical() {
+          const video = els.liveVideo;
+          if (video && video.readyState >= 2 && video.videoWidth > 0) {
+            ctx.drawImage(video, 0, 0, w, h);
+            const frame = ctx.getImageData(0, 0, w, h).data;
+
+            if (!state.prevMotionPixels) {
+              state.prevMotionPixels = new Uint8ClampedArray(frame);
+            } else {
+              let diffSum = 0;
+              let samples = 0;
+              for (let i = 0; i < frame.length; i += 12) {
+                diffSum += Math.abs(frame[i] - state.prevMotionPixels[i]);
+                samples += 1;
+              }
+              state.prevMotionPixels.set(frame);
+              const score = samples > 0 ? diffSum / samples : 0;
+              state.latestMotionScore = score;
+              if (score > state.peakMotionSinceLastCheck) {
+                state.peakMotionSinceLastCheck = score;
+              }
+            }
+          }
+          state.opticalRafId = requestAnimationFrame(tickOptical);
+        }
+
+        state.opticalRafId = requestAnimationFrame(tickOptical);
+      }
+
+      // رصد بصري محلي فوري بدون نت عند وجود حركة عالية أو تلامس مفاجئ
+      function detectOfflineInstantEvent(motionPeak) {
+        if (motionPeak >= 16.5) {
+          return {
+            eventType: motionPeak >= 24 ? 'foul' : 'handball',
+            titleAr: motionPeak >= 24 ? 'فاول! التحام سريع (بدون نت)' : 'لمسة يد! رصد فوري (بدون نت)',
+            detailAr: 'تم التقاط الحدث وحفظه في مرة واحدة محلياً بدون إنترنت'
+          };
+        }
+        return null;
+      }
+
+      function grabJpegBase64() {
+        const video = els.liveVideo;
+        if (!video || video.readyState < 2 || !video.videoWidth) return null;
+
+        const canvas = els.captureCanvas;
+        const maxW = 512;
+        const scale = Math.min(1, maxW / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const url = canvas.toDataURL('image/jpeg', 0.72);
+        return url.split(',')[1] || null;
+      }
+
+      async function analyzeFrameWithAi(base64Image) {
+        if (!apiKey || !state.isOnline) return null;
+
+        const systemPrompt = [
+          'أنت حكم فيديو ذكي فوري فائق السرعة (Instant AI VAR Referee).',
+          'التقط القرار من أول نظرة في مرة واحدة دون تكرار.',
+          'ممنوع منعاً باتاً احتساب أي تسلل (NO OFFSIDE) وممنوع منعاً باتاً منح أي كارت أصفر أو أحمر (NO CARDS).',
+          'الأحداث المسموحة فقط: goal_red, goal_blue, foul, handball, penalty, throw_red, throw_blue, play_on.',
+          'أعد JSON فقط.'
+        ].join('\n');
+
+        const payload = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: 'افحص هذه اللقطة فوراً: هدف (goal_red / goal_blue)، فاول (foul)، يد (handball)، ضربة جزاء (penalty)، تماس (throw_red / throw_blue)، أو play_on.' },
+                { inlineData: { mimeType: 'image/jpeg', data: base64Image } }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.15,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                eventType: {
+                  type: 'STRING',
+                  enum: ['goal_red', 'goal_blue', 'foul', 'handball', 'penalty', 'throw_red', 'throw_blue', 'play_on']
+                },
+                titleAr: { type: 'STRING' },
+                detailAr: { type: 'STRING' }
+              },
+              required: ['eventType', 'titleAr', 'detailAr']
+            }
+          }
+        };
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) return null;
+        const json = await response.json();
+        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+        return text ? JSON.parse(text) : null;
+      }
+
+      function startAutonomousVisionLoop() {
+        if (state.visionInterval) clearInterval(state.visionInterval);
+
+        state.visionInterval = setInterval(async () => {
+          if (!state.autonomousActive || !state.isVideoReady) return;
+
+          const currentPeak = state.peakMotionSinceLastCheck;
+          state.peakMotionSinceLastCheck = 0;
+
+          if (currentPeak < 0.7 && state.latestMotionScore < 0.7) {
+            els.telemetryText.textContent = state.isOnline
+              ? 'مباشر 60 FPS • كشف فوري في مرة واحدة'
+              : '⚡ وضع بدون نت نشط • كشف بصري فوري 60 FPS';
+            return;
+          }
+
+          // فحص محلي فوري يعمل حتى بدون نت
+          const localHit = detectOfflineInstantEvent(currentPeak);
+          if (localHit) {
+            const now = Date.now();
+            if (localHit.eventType !== state.lastEventType || now - state.lastEventTimestamp > 2000) {
+              state.lastEventType = localHit.eventType;
+              state.lastEventTimestamp = now;
+              triggerInstantDecision(localHit.eventType, localHit.titleAr, localHit.detailAr, 'رصد فوري في مرة واحدة');
+            }
+          }
+
+          if (!apiKey || !state.isOnline || state.activeRequests >= state.maxConcurrentRequests) return;
+
+          const frameB64 = grabJpegBase64();
+          if (!frameB64) return;
+
+          state.activeRequests += 1;
+          try {
+            const result = await analyzeFrameWithAi(frameB64);
+            if (result && result.eventType && result.eventType !== 'play_on') {
+              const now = Date.now();
+              if (result.eventType !== state.lastEventType || now - state.lastEventTimestamp > 2000) {
+                state.lastEventType = result.eventType;
+                state.lastEventTimestamp = now;
+                triggerInstantDecision(result.eventType, result.titleAr, result.detailAr, 'التقاط فوري AI');
+              }
+            }
+          } catch (_) {
+          } finally {
+            state.activeRequests = Math.max(0, state.activeRequests - 1);
+          }
+        }, 1100);
+      }
+
+      // =========================================================
+      // 6. تنفيذ القرار وحفظه في مرة واحدة بدون تكرار
+      // =========================================================
+      let centerHideTimer = null;
+      function triggerInstantDecision(type, customTitle, customDetail, source = 'فوري في مرة واحدة') {
+        const configMap = {
+          goal_red: {
+            emoji: '⚽🔥',
+            badge: 'هدف فوري • محفوظ مرة واحدة',
+            title: customTitle || 'جووول! هدف للفريق الأحمر',
+            border: 'border-[#ff3b30]',
+            flash: 'border-[#ff3b30] shadow-[inset_0_0_95px_rgba(255,59,48,0.85)]',
+            longWhistle: true,
+            isGoal: 'red'
+          },
+          goal_blue: {
+            emoji: '⚽🔥',
+            badge: 'هدف فوري • محفوظ مرة واحدة',
+            title: customTitle || 'جووول! هدف للفريق الأزرق',
+            border: 'border-[#2979ff]',
+            flash: 'border-[#2979ff] shadow-[inset_0_0_95px_rgba(41,121,255,0.85)]',
+            longWhistle: true,
+            isGoal: 'blue'
+          },
+          foul: {
+            emoji: '⚠️',
+            badge: 'فاول فوري • بدون كروت',
+            title: customTitle || 'فاول! مخالفة مباشرة',
+            border: 'border-indigo-400',
+            flash: 'border-indigo-500 shadow-[inset_0_0_85px_rgba(99,102,241,0.8)]',
+            longWhistle: false
+          },
+          handball: {
+            emoji: '✋',
+            badge: 'لمسة يد • HANDBALL',
+            title: customTitle || 'لمسة يد! مخالفة مباشرة',
+            border: 'border-amber-400',
+            flash: 'border-amber-500 shadow-[inset_0_0_85px_rgba(245,158,11,0.8)]',
+            longWhistle: false
+          },
+          penalty: {
+            emoji: '🎯⚽',
+            badge: 'ضربة جزاء • PENALTY',
+            title: customTitle || 'ضربة جزاء! (Penalty Kick)',
+            border: 'border-[#00e676]',
+            flash: 'border-[#00e676] shadow-[inset_0_0_95px_rgba(0,230,118,0.85)]',
+            longWhistle: true
+          },
+          throw_red: {
+            emoji: '🚩🔴',
+            badge: 'رمية تماس • لصالح الأحمر',
+            title: customTitle || 'رمية تماس لصالح الأحمر',
+            border: 'border-[#ff3b30]',
+            flash: 'border-[#ff3b30] shadow-[inset_0_0_75px_rgba(255,59,48,0.7)]',
+            longWhistle: false
+          },
+          throw_blue: {
+            emoji: '🚩🔵',
+            badge: 'رمية تماس • لصالح الأزرق',
+            title: customTitle || 'رمية تماس لصالح الأزرق',
+            border: 'border-[#2979ff]',
+            flash: 'border-[#2979ff] shadow-[inset_0_0_75px_rgba(41,121,255,0.7)]',
+            longWhistle: false
+          }
+        };
+
+        const cfg = configMap[type];
+        if (!cfg) return;
+
+        // في وضع "مرة واحدة" نمنع التكرار لنفس اللقطة خلال نفس الثواني
+        const timeWindow = Math.floor(Date.now() / 1600);
+        const onceKey = `${type}_${timeWindow}`;
+        if (state.lockOnceMode && state.capturedOnceSignatures.has(onceKey)) {
+          return;
+        }
+        state.capturedOnceSignatures.add(onceKey);
+
+        if (cfg.isGoal === 'red') {
+          state.scores.red += 1;
+          state.counts.goals += 1;
+        } else if (cfg.isGoal === 'blue') {
+          state.scores.blue += 1;
+          state.counts.goals += 1;
+        } else if (type === 'foul') {
+          state.counts.fouls += 1;
+        } else if (type === 'handball') {
+          state.counts.hands += 1;
+        } else if (type === 'penalty') {
+          state.counts.penalties += 1;
+        } else if (type === 'throw_red' || type === 'throw_blue') {
+          state.counts.throws += 1;
+        }
+
+        syncScoreAndStats();
+
+        const scoreLine = `النتيجة الآن: الأحمر ${state.scores.red} - ${state.scores.blue} الأزرق`;
+        const subtitle = cfg.isGoal ? scoreLine : (customDetail || 'محفوظ في مرة واحدة بدون تسلل وبدون كروت');
+
+        els.screenEdgeFlash.className = `pointer-events-none fixed inset-0 z-20 border-[8px] ${cfg.flash} animate-edge-flash`;
+        els.screenEdgeFlash.classList.remove('hidden');
+
+        clearTimeout(centerHideTimer);
+        els.centerEventCard.className = `animate-event-pop max-w-lg w-full rounded-3xl bg-[#090d16]/94 backdrop-blur-xl border-2 ${cfg.border} px-6 py-5 sm:px-8 sm:py-7 text-center shadow-[0_20px_70px_rgba(0,0,0,0.9)] space-y-2`;
+        els.centerEventEmoji.textContent = cfg.emoji;
+        els.centerEventBadge.textContent = `${cfg.badge} • ${source}`;
+        els.centerEventTitle.textContent = cfg.title;
+        els.centerEventSubtitle.textContent = subtitle;
+        els.centerEventOverlay.classList.remove('hidden');
+
+        centerHideTimer = setTimeout(() => {
+          els.centerEventOverlay.classList.add('hidden');
+          els.screenEdgeFlash.classList.add('hidden');
+        }, 2100);
+
+        playWhistle(cfg.longWhistle);
+        if (cfg.isGoal) {
+          const teamSpoken = cfg.isGoal === 'red' ? 'الفريق الأحمر' : 'الفريق الأزرق';
+          setTimeout(() => playGoalHorn(), 200);
+          setTimeout(() => speakArabic(`جووول! هدف لـ ${teamSpoken}`), 400);
+        } else {
+          setTimeout(() => speakArabic(cfg.title), 180);
+        }
+
+        const timeTag = els.matchTimerDisplay.textContent;
+        state.logs.unshift({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          emoji: cfg.emoji,
+          title: cfg.title,
+          subtitle,
+          source,
+          time: timeTag
+        });
+        renderLogsDrawer();
+      }
+
+      function syncScoreAndStats() {
+        els.redScoreText.textContent = String(state.scores.red);
+        els.blueScoreText.textContent = String(state.scores.blue);
+        els.drawerRedScore.textContent = String(state.scores.red);
+        els.drawerBlueScore.textContent = String(state.scores.blue);
+
+        els.statGoals.textContent = String(state.counts.goals);
+        els.statFouls.textContent = String(state.counts.fouls);
+        els.statHands.textContent = String(state.counts.hands);
+        els.statPenalties.textContent = String(state.counts.penalties);
+        els.statThrows.textContent = String(state.counts.throws);
+        els.logCountBadge.textContent = String(state.logs.length);
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function renderLogsDrawer() {
+        els.logCountBadge.textContent = String(state.logs.length);
+        if (state.logs.length === 0) {
+          els.drawerLogList.innerHTML = '';
+          els.drawerLogList.appendChild(els.emptyLogPlaceholder);
+          els.emptyLogPlaceholder.classList.remove('hidden');
+          return;
+        }
+
+        els.drawerLogList.innerHTML = state.logs
+          .map((item) => `
+            <div class="rounded-2xl bg-slate-950 border border-white/10 p-3 flex items-start justify-between gap-3">
+              <div class="flex items-start gap-2.5">
+                <span class="text-xl mt-0.5">${item.emoji}</span>
+                <div>
+                  <div class="text-sm font-black text-white">${escapeHtml(item.title)}</div>
+                  <div class="text-xs text-slate-300 mt-0.5">${escapeHtml(item.subtitle)}</div>
+                  <div class="text-[10px] text-emerald-400 font-bold mt-1">${escapeHtml(item.source)}</div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white/10 text-slate-200 shrink-0">${escapeHtml(item.time)}</span>
+            </div>
+          `)
+          .join('');
+      }
+
+      function copySummaryText() {
+        const lines = [
+          'كاميرا الحكم الذكي الفوري — ملخص المباراة',
+          `النتيجة: الأحمر ${state.scores.red} - ${state.scores.blue} الأزرق`,
+          `أهداف: ${state.counts.goals} | فاولات: ${state.counts.fouls} | يد: ${state.counts.hands} | جزاء: ${state.counts.penalties} | تماس: ${state.counts.throws}`,
+          'بدون تسلل • بدون كروت صفراء أو حمراء',
+          '----------------------------------------',
+          ...state.logs.map((l, i) => `${i + 1}. [${l.time}] ${l.title} (${l.subtitle})`)
+        ];
+        try {
+          const area = document.createElement('textarea');
+          area.value = lines.join('\n');
+          area.setAttribute('readonly', '');
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          document.body.removeChild(area);
+          els.telemetryText.textContent = '✓ تم نسخ ملخص المباراة';
+        } catch (_) {}
+      }
+
+      function resetMatch() {
+        state.scores = { red: 0, blue: 0 };
+        state.counts = { goals: 0, fouls: 0, hands: 0, penalties: 0, throws: 0 };
+        state.logs = [];
+        state.capturedOnceSignatures.clear();
+        state.elapsedSeconds = 0;
+        els.matchTimerDisplay.textContent = '00:00';
+        syncScoreAndStats();
+        renderLogsDrawer();
+        els.telemetryText.textContent = 'تم تصفير المباراة — جاهز للالتقاط في مرة واحدة';
+      }
+
+      function initEvents() {
+        // أزرار فتح وتثبيت ومشاركة
+        els.btnOpenTop.addEventListener('click', async () => {
+          els.startWelcomeOverlay.classList.add('hidden');
+          ensureAudioContext();
+          enterFullScreenMode();
+          await startLiveCamera();
+          startMatchClock();
+          startOptical60FpsLoop();
+          startAutonomousVisionLoop();
+        });
+
+        els.btnStartImmediate.addEventListener('click', async () => {
+          els.startWelcomeOverlay.classList.add('hidden');
+          ensureAudioContext();
+          enterFullScreenMode();
+          await startLiveCamera();
+          startMatchClock();
+          startOptical60FpsLoop();
+          startAutonomousVisionLoop();
+        });
+
+        els.btnInstallTop.addEventListener('click', handleInstallClick);
+        els.btnInstallWelcome.addEventListener('click', handleInstallClick);
+        els.btnDownloadFileTop.addEventListener('click', downloadAppHtmlFile);
+        els.btnDownloadFileWelcome.addEventListener('click', downloadAppHtmlFile);
+        els.btnCloseInstallGuide.addEventListener('click', () => els.installGuideModal.classList.add('hidden'));
+        els.btnConfirmInstallGuide.addEventListener('click', () => els.installGuideModal.classList.add('hidden'));
+        els.installGuideModal.addEventListener('click', (e) => {
+          if (e.target === els.installGuideModal) els.installGuideModal.classList.add('hidden');
+        });
+
+        els.btnShareTop.addEventListener('click', shareAppOrSummary);
+        els.btnShareBottom.addEventListener('click', shareAppOrSummary);
+        els.btnShareWelcome.addEventListener('click', shareAppOrSummary);
+        els.btnShareLog.addEventListener('click', shareAppOrSummary);
+
+        // تبديل وضع الحفظ مرة واحدة
+        els.btnLockOnceMode.addEventListener('click', () => {
+          state.lockOnceMode = !state.lockOnceMode;
+          if (state.lockOnceMode) {
+            els.lockOnceLabel.textContent = 'مرة واحدة ✓';
+            els.btnLockOnceMode.className = 'px-2 py-0.5 rounded-full bg-[#00e676]/20 border border-[#00e676]/50 text-[#00e676] text-[10px] sm:text-[11px] font-black transition active:scale-95';
+            els.telemetryText.textContent = '✓ وضع الحفظ في مرة واحدة مفعّل';
+          } else {
+            els.lockOnceLabel.textContent = 'متكرر';
+            els.btnLockOnceMode.className = 'px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-slate-300 text-[10px] sm:text-[11px] font-black transition active:scale-95';
+            els.telemetryText.textContent = 'وضع الالتقاط المتكرر مفعّل';
+          }
+        });
+
+        els.btnToggleAutonomous.addEventListener('click', () => {
+          state.autonomousActive = !state.autonomousActive;
+          if (state.autonomousActive) {
+            els.radarDot.className = 'w-2.5 h-2.5 rounded-full bg-[#00e676] animate-radar';
+            els.radarStatusText.textContent = 'فوري من أول مرة';
+            els.radarStatusText.className = 'text-emerald-300';
+          } else {
+            els.radarDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-500';
+            els.radarStatusText.textContent = 'متوقف مؤقتاً';
+            els.radarStatusText.className = 'text-slate-300';
+          }
+        });
+
+        els.btnRedPlus.addEventListener('click', () => {
+          ensureAudioContext();
+          triggerInstantDecision('goal_red', null, null, 'تسجيل فوري في مرة واحدة');
+        });
+        els.btnRedMinus.addEventListener('click', () => {
+          state.scores.red = Math.max(0, state.scores.red - 1);
+          syncScoreAndStats();
+        });
+        els.btnBluePlus.addEventListener('click', () => {
+          ensureAudioContext();
+          triggerInstantDecision('goal_blue', null, null, 'تسجيل فوري في مرة واحدة');
+        });
+        els.btnBlueMinus.addEventListener('click', () => {
+          state.scores.blue = Math.max(0, state.scores.blue - 1);
+          syncScoreAndStats();
+        });
+
+        els.quickEventBtns.forEach((btn) => {
+          btn.addEventListener('click', () => {
+            ensureAudioContext();
+            const evType = btn.getAttribute('data-quick-event');
+            triggerInstantDecision(evType, null, null, 'قرار فوري في مرة واحدة');
+          });
+        });
+
+        els.btnFlipCamera.addEventListener('click', async () => {
+          const nextMode = state.facingMode === 'environment' ? 'user' : 'environment';
+          await startLiveCamera(nextMode);
+        });
+
+        els.videoFileInput.addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) loadDemoVideoFile(file);
+        });
+        els.videoFileInputStart.addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) loadDemoVideoFile(file);
+        });
+
+        els.btnToggleAudio.addEventListener('click', () => {
+          state.audioEnabled = !state.audioEnabled;
+          els.audioStateIcon.textContent = state.audioEnabled ? '🔊' : '🔇';
+        });
+
+        els.btnFullscreenToggle.addEventListener('click', toggleFullScreenMode);
+
+        els.btnOpenLogDrawer.addEventListener('click', () => {
+          renderLogsDrawer();
+          els.logDrawerBackdrop.classList.remove('hidden');
+        });
+        els.btnCloseLogDrawer.addEventListener('click', () => els.logDrawerBackdrop.classList.add('hidden'));
+        els.logDrawerBackdrop.addEventListener('click', (e) => {
+          if (e.target === els.logDrawerBackdrop) els.logDrawerBackdrop.classList.add('hidden');
+        });
+
+        els.btnCopySummary.addEventListener('click', copySummaryText);
+        els.btnResetMatch.addEventListener('click', resetMatch);
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        setupOfflineServiceWorkerAndPwa();
+        initEvents();
+        syncScoreAndStats();
+      });
+    })();
+  </script>
+
+
+      <script>
+        (function() {
+          // The root element's background fills the whole page. As in CSS,
+          // the body's background is used when the root element has none.
+          function getPageBackgroundColor() {
+            var docStyle = window.getComputedStyle(document.documentElement);
+            var color = docStyle.backgroundColor;
+            if ((color === 'rgba(0, 0, 0, 0)' || color === 'transparent') &&
+                docStyle.backgroundImage === 'none' && document.body) {
+              color = window.getComputedStyle(document.body).backgroundColor;
+            }
+            return color || '';
+          }
+
+          var lastReportedColor = '';
+          function reportBackgroundColor() {
+            try {
+              var color = getPageBackgroundColor();
+              if (color === lastReportedColor) return;
+              lastReportedColor = color;
+              window.parent.postMessage({
+                type: 'ATARI_CODE_EMBED_BACKGROUND_COLOR',
+                backgroundColor: color
+              }, '*');
+            } catch (e) {}
+          }
+
+          // The page background usually changes through an attribute on html
+          // or body (for example a theme class), a style sheet in head, or the
+          // system color scheme.
+          if (typeof MutationObserver !== 'undefined') {
+            var observer = new MutationObserver(reportBackgroundColor);
+            observer.observe(document.documentElement, {attributes: true});
+            if (document.body) {
+              observer.observe(document.body, {attributes: true});
+            }
+            if (document.head) {
+              observer.observe(document.head, {
+                attributes: true,
+                childList: true,
+                subtree: true,
+                characterData: true
+              });
+            }
+          }
+          var colorSchemeQuery =
+              window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+          if (colorSchemeQuery && colorSchemeQuery.addEventListener) {
+            colorSchemeQuery.addEventListener('change', reportBackgroundColor);
+          }
+          window.addEventListener('load', reportBackgroundColor);
+          window.addEventListener('transitionend', reportBackgroundColor);
+          window.addEventListener('animationend', reportBackgroundColor);
+          reportBackgroundColor();
+        })();
+      </script>
+    </body></html>
